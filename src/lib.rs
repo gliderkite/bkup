@@ -2,7 +2,8 @@
 extern crate failure;
 
 use failure::{err_msg, Error};
-use log::{info, trace};
+use fs_extra::dir;
+use log::{debug, info};
 use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::fmt;
@@ -28,27 +29,18 @@ pub enum FileCmp {
 /// directory entry it has been compared to.
 #[derive(Debug)]
 pub struct DirDelta<'a> {
-    entry: &'a DirEntry, // directory entry used for the comparison
+    entry: &'a DirEntry, // source directory entry used for the comparison
+    other: &'a DirEntry, // destination directory entry used for the comparison
     diff: DirCmp, // comparison result between the directory entry and the other
     entries: HashMap<&'a Path, EntryCmp<'a>>, // comparison results for each sub-entry
 }
 
 impl<'a> DirDelta<'a> {
-    /*
-    /// Creates a new directory difference from the given entry.
-    fn new(entry: &'a DirEntry) -> Self {
-        DirDelta {
-            entry,
-            delta: None,
-            entries: HashMap::new(),
-        }
-    }
-    */
-
     /// Creates a new directory difference from the given entries to compare.
     fn new(entry: &'a DirEntry, other: &'a DirEntry) -> Result<Self, Error> {
         let mut delta = DirDelta {
             entry,
+            other,
             diff: DirCmp::Same,
             entries: HashMap::new(),
         };
@@ -61,7 +53,8 @@ impl<'a> DirDelta<'a> {
 /// it has been compared to.
 #[derive(Debug)]
 pub struct FileDelta<'a> {
-    entry: &'a FileEntry, // file entry used for the comparison
+    entry: &'a FileEntry, // source file entry used for the comparison
+    other: &'a FileEntry, // destination file entry used for the comparison
     diff: FileCmp,        // comparison result
 }
 
@@ -69,7 +62,7 @@ impl<'a> FileDelta<'a> {
     /// Creates a new file delta from the given entries.
     fn new(entry: &'a FileEntry, other: &'a FileEntry) -> Result<Self, Error> {
         let diff = entry.cmp(other)?;
-        Ok(FileDelta { entry, diff })
+        Ok(FileDelta { entry, other, diff })
     }
 }
 
@@ -77,7 +70,7 @@ impl<'a> FileDelta<'a> {
 pub enum EntryCmp<'a> {
     Dir(DirDelta<'a>),
     File(FileDelta<'a>),
-    NotFound,
+    NotFound { entry: &'a Entry, other: PathBuf }, // `entry` not found on the `other` path
 }
 
 #[derive(Debug)]
@@ -104,6 +97,18 @@ impl DirEntry {
         }
     }
 
+    /// Copies self into the given destination.
+    fn copy(&self, dest: &Path) -> Result<(), Error> {
+        info!("Copy directory {:?} to {:?}", self.path, dest);
+        fs::create_dir(dest)?;
+        let parent = dest
+            .parent()
+            .ok_or(format_err!("Cannot get parent of {:?}", dest))?;
+        dir::copy(&self.path, parent, &dir::CopyOptions::new())
+            .map(drop)
+            .map_err(Error::from)
+    }
+
     /// Compares self with another directory entry and store the difference in
     /// the given delta data structure.
     fn cmp<'a>(
@@ -119,10 +124,15 @@ impl DirEntry {
             let cmp_res = if let Some(e2) = other.entries.get(name) {
                 e1.cmp(e2)
             } else {
+                let dest_path: PathBuf =
+                    [other.path.as_path(), e1.file_name()?].iter().collect();
                 // the entry doesn't exist in the second directory
-                Ok(EntryCmp::NotFound)
+                Ok(EntryCmp::NotFound {
+                    entry: e1,
+                    other: dest_path,
+                })
             };
-            info!("Diff {:?} => {:?}", e1, cmp_res);
+            debug!("Difference for {:?}: {:?}", e1, cmp_res);
             let cmp_res = cmp_res?;
 
             // check if all the entries are the same by finding the first difference
@@ -161,6 +171,12 @@ impl FileEntry {
         } else {
             Err(format_err!("The given file '{:?}' does not exist!", path))
         }
+    }
+
+    /// Copies self into the given destination.
+    fn copy(&self, dest: &Path) -> Result<(), Error> {
+        info!("Copy file {:?} to {:?}", self.path, dest);
+        fs::copy(&self.path, dest).map(drop).map_err(Error::from)
     }
 
     /// Compares self with another file entry.
@@ -226,6 +242,22 @@ impl Entry {
         }
     }
 
+    /// Gets the filename of the entry.
+    fn file_name(&self) -> Result<&Path, Error> {
+        self.path()
+            .file_name()
+            .map(|s| Path::new(s))
+            .ok_or(format_err!("Cannot get the filename for '{}'", self))
+    }
+
+    /// Copies self into the given destination.
+    fn copy(&self, dest: &Path) -> Result<(), Error> {
+        match self {
+            Entry::Dir(e) => e.copy(dest),
+            Entry::File(e) => e.copy(dest),
+        }
+    }
+
     /// Visit and populate the Entry.
     /// Only entries that represent directories can be visited.
     fn visit(&mut self) -> Result<(), Error> {
@@ -240,21 +272,20 @@ impl Entry {
                     // get the entry filename if any
                     let file_name = path
                         .file_name()
-                        .and_then(|p| p.to_str())
                         .map(|s| PathBuf::from(s))
                         .ok_or(format_err!(
-                            "Cannot get the filename for '{:?}'!",
+                            "Cannot get the filename for '{:?}'",
                             path
                         ))?;
 
                     if path.is_dir() {
-                        trace!("New sub-directory: {:?}", path);
+                        debug!("New sub-directory: {:?}", path);
                         let mut dir = Entry::new_dir(&path)?;
                         // dfs with recursion
                         dir.visit()?;
                         directory.entries.insert(file_name, dir);
                     } else if path.is_file() {
-                        trace!("New file: {:?}", path);
+                        debug!("New file: {:?}", path);
                         directory
                             .entries
                             .insert(file_name, Entry::new_file(&path)?);
@@ -268,7 +299,7 @@ impl Entry {
 
     /// Compares self with another entry.
     pub fn cmp<'a>(&'a self, other: &'a Entry) -> Result<EntryCmp<'a>, Error> {
-        trace!("Comparing: {} - {}", self, other);
+        debug!("Comparing: {} to {}", self, other);
         match (self, other) {
             (Entry::Dir(dir1), Entry::Dir(dir2)) => {
                 let delta = DirDelta::new(dir1, dir2)?;
@@ -290,17 +321,45 @@ impl fmt::Display for Entry {
 }
 
 /// Runs the directories comparison.
-pub fn run() -> Result<(), Error> {
-    let left = Path::new("./A");
-    info!("Visiting directory {:?}", left);
-    let left = Entry::visit_dir(left)?;
+pub fn run(source: &Path, dest: &Path) -> Result<(), Error> {
+    info!("Exploring directory {:?}", source);
+    let source = Entry::visit_dir(source)?;
 
-    let right = Path::new("./B");
-    info!("Visiting directory {:?}", right);
-    let right = Entry::visit_dir(right)?;
+    info!("Exploring directory {:?}", dest);
+    let dest = Entry::visit_dir(dest)?;
 
-    let cmp_res = left.cmp(&right)?;
-    info!("Diff comparison: {:?}", cmp_res);
+    info!("Computing difference");
+    let diff = source.cmp(&dest)?;
+    debug!("Difference: {:?}", diff);
 
+    info!("Updating destination");
+    update(&diff)?;
+    info!("Update completed");
+
+    Ok(())
+}
+
+/// Runs the update according to the given comparison result.
+fn update<'a>(diff: &EntryCmp<'a>) -> Result<(), Error> {
+    match diff {
+        EntryCmp::Dir(delta) => {
+            debug!("Directory delta: {:?}", delta);
+            if delta.diff == DirCmp::Different {
+                for (_, entry) in &delta.entries {
+                    update(entry)?;
+                }
+            }
+        }
+        EntryCmp::File(delta) => {
+            debug!("File delta: {:?}", delta);
+            if delta.diff == FileCmp::Newer {
+                delta.entry.copy(&delta.other.path)?;
+            }
+        }
+        EntryCmp::NotFound { entry, other } => {
+            debug!("Not found: {:?} in {:?}", entry, other);
+            entry.copy(other)?;
+        }
+    };
     Ok(())
 }
