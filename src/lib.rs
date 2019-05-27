@@ -12,14 +12,14 @@ use std::path::{Path, PathBuf};
 
 /// Enumerates the possible results of a directory comparison.
 #[derive(Debug, PartialEq)]
-pub enum DirCmp {
+enum DirCmp {
     Same,
     Different,
 }
 
 /// Enumerates the possible results of a file comparison.
 #[derive(Debug, PartialEq)]
-pub enum FileCmp {
+enum FileCmp {
     Same,
     Older,
     Newer,
@@ -28,7 +28,7 @@ pub enum FileCmp {
 /// Represents the delta between the directory entry it points to and the
 /// directory entry it has been compared to.
 #[derive(Debug)]
-pub struct DirDelta<'a> {
+struct DirDelta<'a> {
     entry: &'a DirEntry, // source directory entry used for the comparison
     other: &'a DirEntry, // destination directory entry used for the comparison
     diff: DirCmp, // comparison result between the directory entry and the other
@@ -52,7 +52,7 @@ impl<'a> DirDelta<'a> {
 /// Represents the delta between the file entry it points to and the file entry
 /// it has been compared to.
 #[derive(Debug)]
-pub struct FileDelta<'a> {
+struct FileDelta<'a> {
     entry: &'a FileEntry, // source file entry used for the comparison
     other: &'a FileEntry, // destination file entry used for the comparison
     diff: FileCmp,        // comparison result
@@ -67,14 +67,14 @@ impl<'a> FileDelta<'a> {
 }
 
 #[derive(Debug)]
-pub enum EntryCmp<'a> {
+enum EntryCmp<'a> {
     Dir(DirDelta<'a>),
     File(FileDelta<'a>),
     NotFound { entry: &'a Entry, other: PathBuf }, // `entry` not found on the `other` path
 }
 
 #[derive(Debug)]
-pub struct DirEntry {
+struct DirEntry {
     // directory path
     path: PathBuf,
     // sub-entries where the key is the file name
@@ -156,7 +156,7 @@ impl DirEntry {
 }
 
 #[derive(Debug)]
-pub struct FileEntry {
+struct FileEntry {
     // file path
     path: PathBuf,
 }
@@ -207,7 +207,7 @@ impl FileEntry {
 }
 
 #[derive(Debug)]
-pub enum Entry {
+enum Entry {
     // Directory
     Dir(DirEntry),
     // File
@@ -298,7 +298,7 @@ impl Entry {
     }
 
     /// Compares self with another entry.
-    pub fn cmp<'a>(&'a self, other: &'a Entry) -> Result<EntryCmp<'a>, Error> {
+    fn cmp<'a>(&'a self, other: &'a Entry) -> Result<EntryCmp<'a>, Error> {
         debug!("Comparing: {} to {}", self, other);
         match (self, other) {
             (Entry::Dir(dir1), Entry::Dir(dir2)) => {
