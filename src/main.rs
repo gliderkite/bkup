@@ -23,7 +23,7 @@ fn main() -> Result<(), Error> {
         .subcommand(
             SubCommand::with_name(UPDATE_CMD)
                 .about(
-                    "run the backup and update older files in the destination",
+                    "Runs the backup and updates older files in the destination",
                 )
                 .arg(
                     Arg::with_name(SOURCE_ARG)
