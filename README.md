@@ -35,4 +35,5 @@ cargo run -- --help
     - [ ] Keep alive background process and backup every N seconds.
     - [ ] Read JSON configuration with multiple sources and destinations.
     - [ ] Option to backup destination into source (*round trip*).
+    - [ ] Ignore files and folder to backup (for each source/destination).
 - [ ] Create 2 binaries: export lib public functionalities + executable
