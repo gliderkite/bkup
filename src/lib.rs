@@ -1,9 +1,13 @@
 #[macro_use]
 extern crate failure;
 
+#[cfg(test)]
+#[macro_use]
+extern crate lazy_static;
+
 use failure::{err_msg, Error};
 use fs_extra::dir;
-use log::{debug, info};
+use log::*;
 use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::fmt;
@@ -98,15 +102,14 @@ impl DirEntry {
     }
 
     /// Copies self into the given destination.
-    fn copy(&self, dest: &Path) -> Result<(), Error> {
+    fn copy(&self, dest: &Path) -> Result<DirEntry, Error> {
         info!("Copy directory {:?} to {:?}", self.path, dest);
         fs::create_dir(dest)?;
         let parent = dest
             .parent()
             .ok_or(format_err!("Cannot get parent of {:?}", dest))?;
-        dir::copy(&self.path, parent, &dir::CopyOptions::new())
-            .map(drop)
-            .map_err(Error::from)
+        dir::copy(&self.path, parent, &dir::CopyOptions::new())?;
+        DirEntry::new(dest)
     }
 
     /// Compares self with another directory entry and store the difference in
@@ -174,9 +177,10 @@ impl FileEntry {
     }
 
     /// Copies self into the given destination.
-    fn copy(&self, dest: &Path) -> Result<(), Error> {
+    fn copy(&self, dest: &Path) -> Result<FileEntry, Error> {
         info!("Copy file {:?} to {:?}", self.path, dest);
-        fs::copy(&self.path, dest).map(drop).map_err(Error::from)
+        fs::copy(&self.path, dest)?;
+        FileEntry::new(dest)
     }
 
     /// Compares self with another file entry.
@@ -184,10 +188,15 @@ impl FileEntry {
         let path1 = self.path.as_path();
         let path2 = other.path.as_path();
         let name1 = path1.file_name();
+        trace!("Filename: {:?}", name1);
         let name2 = path2.file_name();
+        trace!("Filename: {:?}", name2);
         // check filenames
         match (name1, name2) {
-            (Some(name1), Some(name2)) if name1 == name2 => {
+            (Some(name1), Some(name2)) => {
+                if name1 != name2 {
+                    warn!("Comparing files with different file names");
+                }
                 // check modification time
                 let t1 = fs::metadata(path1)?.modified()?;
                 let t2 = fs::metadata(path2)?.modified()?;
@@ -217,12 +226,22 @@ enum Entry {
 impl Entry {
     /// Creates a new entry that represents a directory.
     fn new_dir(path: &Path) -> Result<Entry, Error> {
-        Ok(Entry::Dir(DirEntry::new(path)?))
+        Entry::new_dir_entry(DirEntry::new(path)?)
+    }
+
+    /// Creates a new entry that represents a directory.
+    fn new_dir_entry(entry: DirEntry) -> Result<Entry, Error> {
+        Ok(Entry::Dir(entry))
     }
 
     /// Creates a new entry that represents a file.
     fn new_file(path: &Path) -> Result<Entry, Error> {
-        Ok(Entry::File(FileEntry::new(path)?))
+        Entry::new_file_entry(FileEntry::new(path)?)
+    }
+
+    /// Creates a new entry that represents a file.
+    fn new_file_entry(entry: FileEntry) -> Result<Entry, Error> {
+        Ok(Entry::File(entry))
     }
 
     /// Creates a new entry that represents a directory and populates its
@@ -251,10 +270,10 @@ impl Entry {
     }
 
     /// Copies self into the given destination.
-    fn copy(&self, dest: &Path) -> Result<(), Error> {
+    fn copy(&self, dest: &Path) -> Result<Entry, Error> {
         match self {
-            Entry::Dir(e) => e.copy(dest),
-            Entry::File(e) => e.copy(dest),
+            Entry::Dir(e) => Entry::new_dir_entry(e.copy(dest)?),
+            Entry::File(e) => Entry::new_file_entry(e.copy(dest)?),
         }
     }
 
@@ -362,4 +381,61 @@ fn update<'a>(diff: &EntryCmp<'a>) -> Result<(), Error> {
         }
     };
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+
+    use super::*;
+    use std::env;
+    use std::{thread, time};
+    use uuid::Uuid;
+
+    lazy_static! {
+        /// Interval used to write files with significant difference on the
+        /// modification time stored in the metadata.
+        static ref SLEEP_INTERVAL: time::Duration = time::Duration::from_millis(10);
+    }
+
+    #[test]
+    fn test_cmp_files() {
+        let temp_dir = env::temp_dir();
+        // create older file
+        let older = Uuid::new_v4().to_simple().to_string();
+        let older: PathBuf =
+            [temp_dir.as_path(), Path::new(&older)].iter().collect();
+        fs::write(&older, "").expect("Cannot write older file");
+        thread::sleep(*SLEEP_INTERVAL);
+        // create newer file
+        let newer = Uuid::new_v4().to_simple().to_string();
+        let newer: PathBuf =
+            [temp_dir.as_path(), Path::new(&newer)].iter().collect();
+        assert_ne!(older, newer);
+        fs::write(&newer, "").expect("Cannot write newer file");
+
+        // create entries
+        let older =
+            FileEntry::new(older.as_path()).expect("Cannot create older entry");
+        let newer =
+            FileEntry::new(newer.as_path()).expect("Cannot create newer entry");
+        // compare entries
+        let cmp = older.cmp(&newer).expect("Cannot compare entries");
+        assert_eq!(cmp, FileCmp::Older);
+        let cmp = older.cmp(&older).expect("Cannot compare entries");
+        assert_eq!(cmp, FileCmp::Same);
+        let cmp = newer.cmp(&older).expect("Cannot compare entries");
+        assert_eq!(cmp, FileCmp::Newer);
+        let cmp = newer.cmp(&newer).expect("Cannot compare entries");
+        assert_eq!(cmp, FileCmp::Same);
+
+        // create a copy of the older file
+        let copy = older
+            .copy(newer.path.as_path())
+            .expect("Cannot create a copy");
+        let cmp = older.cmp(&copy).expect("Cannot compare entries");
+        assert_eq!(cmp, FileCmp::Older);
+        let cmp = copy.cmp(&older).expect("Cannot compare entries");
+        assert_eq!(cmp, FileCmp::Newer);
+    }
+
 }
