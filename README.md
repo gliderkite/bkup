@@ -28,6 +28,7 @@ cargo run -- --help
 
 - [X] Basic backup implementation: source to destination for older files (*one way*).
 - [ ] Unit and integration Tests for main functionalities.
+- [X] Integrate with CI pipeline.
 - Parallel exploration (and backup):
     - [ ] Simple: 2 threads for each exploration.
     - [ ] Complex: pool of threads that pop from a queue tasks (explore directory or
