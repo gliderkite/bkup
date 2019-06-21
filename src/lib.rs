@@ -14,19 +14,13 @@ use std::fmt;
 use std::fs;
 use std::path::{Path, PathBuf};
 
+type EntryCmpMap<'a> = HashMap<&'a Path, EntryDelta<'a>>;
+
 /// Enumerates the possible results of a directory comparison.
 #[derive(Debug, PartialEq)]
 enum DirCmp {
     Same,
     Different,
-}
-
-/// Enumerates the possible results of a file comparison.
-#[derive(Debug, PartialEq)]
-enum FileCmp {
-    Same,
-    Older,
-    Newer,
 }
 
 /// Represents the delta between the directory entry it points to and the
@@ -36,47 +30,27 @@ struct DirDelta<'a> {
     entry: &'a DirEntry, // source directory entry used for the comparison
     other: &'a DirEntry, // destination directory entry used for the comparison
     diff: DirCmp, // comparison result between the directory entry and the other
-    entries: HashMap<&'a Path, EntryCmp<'a>>, // comparison results for each sub-entry
+    entries: EntryCmpMap<'a>, // comparison results for each sub-entry
 }
 
 impl<'a> DirDelta<'a> {
-    /// Creates a new directory difference from the given entries to compare.
-    fn new(entry: &'a DirEntry, other: &'a DirEntry) -> Result<Self, Error> {
-        let mut delta = DirDelta {
+    /// Creates a new directory difference from the given entries.
+    fn new(
+        entry: &'a DirEntry,
+        other: &'a DirEntry,
+        diff: DirCmp,
+        entries: EntryCmpMap<'a>,
+    ) -> Self {
+        DirDelta {
             entry,
             other,
-            diff: DirCmp::Same,
-            entries: HashMap::new(),
-        };
-        delta.diff = entry.cmp(other, &mut delta)?;
-        Ok(delta)
+            diff,
+            entries,
+        }
     }
 }
 
-/// Represents the delta between the file entry it points to and the file entry
-/// it has been compared to.
-#[derive(Debug)]
-struct FileDelta<'a> {
-    entry: &'a FileEntry, // source file entry used for the comparison
-    other: &'a FileEntry, // destination file entry used for the comparison
-    diff: FileCmp,        // comparison result
-}
-
-impl<'a> FileDelta<'a> {
-    /// Creates a new file delta from the given entries.
-    fn new(entry: &'a FileEntry, other: &'a FileEntry) -> Result<Self, Error> {
-        let diff = entry.cmp(other)?;
-        Ok(FileDelta { entry, other, diff })
-    }
-}
-
-#[derive(Debug)]
-enum EntryCmp<'a> {
-    Dir(DirDelta<'a>),
-    File(FileDelta<'a>),
-    NotFound { entry: &'a Entry, other: PathBuf }, // `entry` not found on the `other` path
-}
-
+/// Represents the structure of a directory entry.
 #[derive(Debug)]
 struct DirEntry {
     // directory path
@@ -112,13 +86,9 @@ impl DirEntry {
         DirEntry::new(dest)
     }
 
-    /// Compares self with another directory entry and store the difference in
-    /// the given delta data structure.
-    fn cmp<'a>(
-        &'a self,
-        other: &'a DirEntry,
-        delta: &mut DirDelta<'a>,
-    ) -> Result<DirCmp, Error> {
+    /// Compares self with another directory entry and returns the delta.
+    fn cmp<'a>(&'a self, other: &'a DirEntry) -> Result<DirDelta<'a>, Error> {
+        let mut entries = HashMap::with_capacity(self.entries.len());
         // true only if all the entries of self and other are the same
         let mut is_same = true;
         // compare each entry of the first directory with the content of
@@ -130,7 +100,7 @@ impl DirEntry {
                 let dest_path: PathBuf =
                     [other.path.as_path(), e1.file_name()?].iter().collect();
                 // the entry doesn't exist in the second directory
-                Ok(EntryCmp::NotFound {
+                Ok(EntryDelta::NotFound {
                     entry: e1,
                     other: dest_path,
                 })
@@ -141,23 +111,49 @@ impl DirEntry {
             // check if all the entries are the same by finding the first difference
             if is_same {
                 is_same = match &cmp_res {
-                    EntryCmp::Dir(dir) => dir.diff == DirCmp::Same,
-                    EntryCmp::File(file) => file.diff == FileCmp::Same,
+                    EntryDelta::Dir(dir) => dir.diff == DirCmp::Same,
+                    EntryDelta::File(file) => file.diff == FileCmp::Same,
                     _ => false,
                 };
             }
 
-            delta.entries.insert(name, cmp_res);
+            entries.insert(name.as_path(), cmp_res);
         }
 
-        if is_same {
-            Ok(DirCmp::Same)
+        let diff = if is_same {
+            DirCmp::Same
         } else {
-            Ok(DirCmp::Different)
-        }
+            DirCmp::Different
+        };
+        Ok(DirDelta::new(self, other, diff, entries))
     }
 }
 
+/// Enumerates the possible results of a file comparison.
+#[derive(Debug, PartialEq)]
+enum FileCmp {
+    Same,
+    Older,
+    Newer,
+}
+
+/// Represents the delta between the file entry it points to and the file entry
+/// it has been compared to.
+#[derive(Debug)]
+struct FileDelta<'a> {
+    entry: &'a FileEntry, // source file entry used for the comparison
+    other: &'a FileEntry, // destination file entry used for the comparison
+    diff: FileCmp,        // comparison result
+}
+
+impl<'a> FileDelta<'a> {
+    /// Creates a new file delta from the given entries.
+    fn new(entry: &'a FileEntry, other: &'a FileEntry, diff: FileCmp) -> Self {
+        FileDelta { entry, other, diff }
+    }
+}
+
+/// Represents a file entry.
 #[derive(Debug)]
 struct FileEntry {
     // file path
@@ -184,7 +180,7 @@ impl FileEntry {
     }
 
     /// Compares self with another file entry.
-    fn cmp(&self, other: &FileEntry) -> Result<FileCmp, Error> {
+    fn cmp<'a>(&'a self, other: &'a FileEntry) -> Result<FileDelta<'a>, Error> {
         let path1 = self.path.as_path();
         let path2 = other.path.as_path();
         let name1 = path1.file_name();
@@ -200,11 +196,12 @@ impl FileEntry {
                 // check modification time
                 let t1 = fs::metadata(path1)?.modified()?;
                 let t2 = fs::metadata(path2)?.modified()?;
-                match t1.cmp(&t2) {
-                    Ordering::Less => Ok(FileCmp::Older),
-                    Ordering::Greater => Ok(FileCmp::Newer),
-                    Ordering::Equal => Ok(FileCmp::Same),
-                }
+                let diff = match t1.cmp(&t2) {
+                    Ordering::Less => FileCmp::Older,
+                    Ordering::Greater => FileCmp::Newer,
+                    Ordering::Equal => FileCmp::Same,
+                };
+                Ok(FileDelta::new(self, other, diff))
             }
             _ => Err(format_err!(
                 "Invalid filenames for {:?} {:?}!",
@@ -216,6 +213,13 @@ impl FileEntry {
 }
 
 #[derive(Debug)]
+enum EntryDelta<'a> {
+    Dir(DirDelta<'a>),
+    File(FileDelta<'a>),
+    NotFound { entry: &'a Entry, other: PathBuf }, // `entry` not found on the `other` path
+}
+
+#[derive(Debug)]
 enum Entry {
     // Directory
     Dir(DirEntry),
@@ -224,33 +228,12 @@ enum Entry {
 }
 
 impl Entry {
-    /// Creates a new entry that represents a directory.
-    fn new_dir(path: &Path) -> Result<Entry, Error> {
-        Entry::new_dir_entry(DirEntry::new(path)?)
-    }
-
-    /// Creates a new entry that represents a directory.
-    fn new_dir_entry(entry: DirEntry) -> Result<Entry, Error> {
-        Ok(Entry::Dir(entry))
-    }
-
-    /// Creates a new entry that represents a file.
-    fn new_file(path: &Path) -> Result<Entry, Error> {
-        Entry::new_file_entry(FileEntry::new(path)?)
-    }
-
-    /// Creates a new entry that represents a file.
-    fn new_file_entry(entry: FileEntry) -> Result<Entry, Error> {
-        Ok(Entry::File(entry))
-    }
-
     /// Creates a new entry that represents a directory and populates its
     /// entries by visiting it.
     fn visit_dir(path: &Path) -> Result<Entry, Error> {
-        Entry::new_dir(path).and_then(|mut d| {
-            d.visit()?;
-            Ok(d)
-        })
+        let mut entry = Entry::Dir(DirEntry::new(path)?);
+        entry.visit()?;
+        Ok(entry)
     }
 
     /// Gets the path of the entry.
@@ -272,8 +255,8 @@ impl Entry {
     /// Copies self into the given destination.
     fn copy(&self, dest: &Path) -> Result<Entry, Error> {
         match self {
-            Entry::Dir(e) => Entry::new_dir_entry(e.copy(dest)?),
-            Entry::File(e) => Entry::new_file_entry(e.copy(dest)?),
+            Entry::Dir(e) => Ok(Entry::Dir(e.copy(dest)?)),
+            Entry::File(e) => Ok(Entry::File(e.copy(dest)?)),
         }
     }
 
@@ -299,15 +282,15 @@ impl Entry {
 
                     if path.is_dir() {
                         debug!("New sub-directory: {:?}", path);
-                        let mut dir = Entry::new_dir(&path)?;
                         // dfs with recursion
-                        dir.visit()?;
+                        let dir = Entry::visit_dir(&path)?;
                         directory.entries.insert(file_name, dir);
                     } else if path.is_file() {
                         debug!("New file: {:?}", path);
-                        directory
-                            .entries
-                            .insert(file_name, Entry::new_file(&path)?);
+                        directory.entries.insert(
+                            file_name,
+                            Entry::File(FileEntry::new(&path)?),
+                        );
                     }
                 }
                 Ok(())
@@ -317,16 +300,16 @@ impl Entry {
     }
 
     /// Compares self with another entry.
-    fn cmp<'a>(&'a self, other: &'a Entry) -> Result<EntryCmp<'a>, Error> {
+    fn cmp<'a>(&'a self, other: &'a Entry) -> Result<EntryDelta<'a>, Error> {
         debug!("Comparing: {} to {}", self, other);
         match (self, other) {
             (Entry::Dir(dir1), Entry::Dir(dir2)) => {
-                let delta = DirDelta::new(dir1, dir2)?;
-                Ok(EntryCmp::Dir(delta))
+                let delta = dir1.cmp(dir2)?;
+                Ok(EntryDelta::Dir(delta))
             }
             (Entry::File(f1), Entry::File(f2)) => {
-                let delta = FileDelta::new(f1, f2)?;
-                Ok(EntryCmp::File(delta))
+                let delta = f1.cmp(f2)?;
+                Ok(EntryDelta::File(delta))
             }
             _ => Err(err_msg("Cannot compare different type of entries!")),
         }
@@ -359,9 +342,9 @@ pub fn run(source: &Path, dest: &Path) -> Result<(), Error> {
 }
 
 /// Runs the update according to the given comparison result.
-fn update<'a>(diff: &EntryCmp<'a>) -> Result<(), Error> {
+fn update<'a>(diff: &EntryDelta<'a>) -> Result<(), Error> {
     match diff {
-        EntryCmp::Dir(delta) => {
+        EntryDelta::Dir(delta) => {
             debug!("Directory delta: {:?}", delta);
             if delta.diff == DirCmp::Different {
                 for (_, entry) in &delta.entries {
@@ -369,13 +352,13 @@ fn update<'a>(diff: &EntryCmp<'a>) -> Result<(), Error> {
                 }
             }
         }
-        EntryCmp::File(delta) => {
+        EntryDelta::File(delta) => {
             debug!("File delta: {:?}", delta);
             if delta.diff == FileCmp::Newer {
                 delta.entry.copy(&delta.other.path)?;
             }
         }
-        EntryCmp::NotFound { entry, other } => {
+        EntryDelta::NotFound { entry, other } => {
             debug!("Not found: {:?} in {:?}", entry, other);
             entry.copy(other)?;
         }
@@ -419,23 +402,22 @@ mod tests {
         let newer =
             FileEntry::new(newer.as_path()).expect("Cannot create newer entry");
         // compare entries
-        let cmp = older.cmp(&newer).expect("Cannot compare entries");
-        assert_eq!(cmp, FileCmp::Older);
-        let cmp = older.cmp(&older).expect("Cannot compare entries");
-        assert_eq!(cmp, FileCmp::Same);
-        let cmp = newer.cmp(&older).expect("Cannot compare entries");
-        assert_eq!(cmp, FileCmp::Newer);
-        let cmp = newer.cmp(&newer).expect("Cannot compare entries");
-        assert_eq!(cmp, FileCmp::Same);
+        let delta = older.cmp(&newer).expect("Cannot compare entries");
+        assert_eq!(delta.diff, FileCmp::Older);
+        let delta = older.cmp(&older).expect("Cannot compare entries");
+        assert_eq!(delta.diff, FileCmp::Same);
+        let delta = newer.cmp(&older).expect("Cannot compare entries");
+        assert_eq!(delta.diff, FileCmp::Newer);
+        let delta = newer.cmp(&newer).expect("Cannot compare entries");
+        assert_eq!(delta.diff, FileCmp::Same);
 
         // create a copy of the older file
         let copy = older
             .copy(newer.path.as_path())
             .expect("Cannot create a copy");
-        let cmp = older.cmp(&copy).expect("Cannot compare entries");
-        assert_eq!(cmp, FileCmp::Older);
-        let cmp = copy.cmp(&older).expect("Cannot compare entries");
-        assert_eq!(cmp, FileCmp::Newer);
+        let delta = older.cmp(&copy).expect("Cannot compare entries");
+        assert_eq!(delta.diff, FileCmp::Older);
+        let delta = copy.cmp(&older).expect("Cannot compare entries");
+        assert_eq!(delta.diff, FileCmp::Newer);
     }
-
 }
