@@ -2,6 +2,8 @@
 
 A simple utility to backup files.
 
+[![Build Status](https://travis-ci.com/gliderkite/bkup.svg?token=KzGLQfTbGDZSnqr7k9KT&branch=master)](https://travis-ci.com/gliderkite/bkup)
+
 
 ## How to use
 
