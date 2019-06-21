@@ -47,6 +47,7 @@ impl<'a> DirDelta<'a> {
         self.diff == DirCmp::Same
     }
 
+    /// Gets an iterator over the directory entries.
     pub fn entries(&self) -> impl Iterator<Item = &EntryDelta<'a>> {
         self.entries.iter().map(|(_, e)| e)
     }
