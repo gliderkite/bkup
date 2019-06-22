@@ -1,11 +1,11 @@
 [package]
 name = "bkup"
 version = "0.1.0"
-authors = ["gliderkite <gliderkite@gmail.com>"]
+authors = ["Marco C <gliderkite@gmail.com>"]
 edition = "2018"
 
 [dependencies]
-clap = "2.33.0"
+clap = { version = "2.33.0", features = ["yaml"] }
 dotenv = "0.13.0"
 env_logger = "0.6.1"
 failure = "0.1.5"

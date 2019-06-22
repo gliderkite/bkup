@@ -28,12 +28,14 @@ cargo run -- --help
 
 - [X] Basic backup implementation: source to destination for older files (*one way*).
 - [ ] Unit and integration Tests for main functionalities.
+    - [ ] Parse YAML/JSON to recreate filesystem structure for better tests.
 - [X] Integrate with CI pipeline.
 - Parallel exploration (and backup):
     - [ ] Simple: 2 threads for each exploration.
     - [ ] Complex: pool of threads that pop from a queue tasks (explore directory or
         compare directories).
 - Configuration:
+    - [X] YAML CLI clap commands.
     - [ ] *Daemonize* process to run in background.
     - [ ] Keep alive background process and backup every N seconds.
     - [ ] Read JSON configuration with multiple sources and destinations.

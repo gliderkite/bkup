@@ -12,11 +12,11 @@ use failure::Error;
 use log::*;
 use std::path::Path;
 
-/// Runs the directories comparison.
-pub fn run(source: &Path, dest: &Path) -> Result<(), Error> {
+/// Updates the destination directory according to its delta with the source
+/// directory.
+pub fn update(source: &Path, dest: &Path) -> Result<(), Error> {
     info!("Exploring directory {:?}", source);
     let source = Entry::new_dir(source)?;
-
     info!("Exploring directory {:?}", dest);
     let dest = Entry::new_dir(dest)?;
 
@@ -25,20 +25,19 @@ pub fn run(source: &Path, dest: &Path) -> Result<(), Error> {
     debug!("Difference: {:?}", diff);
 
     info!("Updating destination");
-    update(&diff)?;
+    do_update(&diff)?;
     info!("Update completed");
-
     Ok(())
 }
 
 /// Runs the update according to the given comparison result.
-fn update<'a>(diff: &EntryDelta<'a>) -> Result<(), Error> {
+fn do_update<'a>(diff: &EntryDelta<'a>) -> Result<(), Error> {
     match diff {
         EntryDelta::Dir(delta) => {
             debug!("Directory delta: {:?}", delta);
             if !delta.is_none() {
                 for entry in delta.entries() {
-                    update(entry)?;
+                    do_update(entry)?;
                 }
             }
         }

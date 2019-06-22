@@ -1,0 +1,27 @@
+name: bkup
+version: "0.1.0"
+author: Marco C <gliderkite@gmail.com>
+about: Fast and safe file backup utility
+args:
+    - daemon:
+        short: d
+        long: daemon
+        help: Run as a background process
+subcommands:
+  - update:
+        about: Update the destination folder according to its delta with the source folder
+        args:
+          - source:
+              short: s
+              long: source
+              value_name: SOURCE_PATH
+              help: Sets the path of the source folder
+              takes_value: true
+              required: true
+          - dest:
+              short: d
+              long: destination
+              value_name: DESTINATION_PATH
+              help: Sets the path of the destination folder to update
+              takes_value: true
+              required: true
