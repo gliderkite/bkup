@@ -275,6 +275,34 @@ pub enum EntryDelta<'a> {
     NotFound { entry: &'a Entry, path: PathBuf }, // `entry` not found in the path
 }
 
+impl<'a> EntryDelta<'a> {
+    /// Updates the destination entry according to its given delta with the
+    /// source entry.
+    pub fn clear(&self) -> Result<(), Error> {
+        match self {
+            EntryDelta::Dir(delta) => {
+                debug!("Directory delta: {:?}", delta);
+                if !delta.is_none() {
+                    for entry in delta.entries() {
+                        entry.clear()?;
+                    }
+                }
+            }
+            EntryDelta::File(delta) => {
+                debug!("File delta: {:?}", delta);
+                if delta.is_newer() {
+                    delta.source().copy(&delta.destination().path())?;
+                }
+            }
+            EntryDelta::NotFound { entry, path } => {
+                debug!("Not found: {:?} in {:?}", entry, path);
+                entry.copy(path)?;
+            }
+        };
+        Ok(())
+    }
+}
+
 #[derive(Debug, PartialEq)]
 pub enum Entry {
     // Directory
