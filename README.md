@@ -14,13 +14,23 @@ directory with the *destination* directory, and update each file in the destinat
 that does not exist or it's older than the related file in the source directory.
 
 ```
-cargo run --release -- update <source> <destination>
+cargo run --release -- update -s <source> -d <destination>
 ```
 
-For a list of possible options run the help command:
+For a list of possible options run with `--help`:
 
 ```
-cargo run -- --help
+USAGE:
+    bkup [FLAGS] [SUBCOMMAND]
+
+FLAGS:
+    -d, --daemon     Run as a background process
+    -h, --help       Prints help information
+    -V, --version    Prints version information
+
+SUBCOMMANDS:
+    help      Prints this message or the help of the given subcommand(s)
+    update    Update the destination folder according to its delta with the source folder
 ```
 
 
