@@ -7,7 +7,7 @@ use std::fmt;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-type EntryCmpMap<'a> = HashMap<&'a Path, EntryDelta<'a>>;
+type EntryDeltaMap<'a> = HashMap<&'a Path, EntryDelta<'a>>;
 
 /// Enumerates the possible results of a directory comparison.
 #[derive(Debug, PartialEq)]
@@ -18,12 +18,12 @@ enum DirCmp {
 
 /// Represents the delta between the directory entry it points to and the
 /// directory entry it has been compared to.
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct DirDelta<'a> {
     source: &'a DirEntry, // source directory entry used for the comparison
     dest: &'a DirEntry,   // destination directory entry used for the comparison
     diff: DirCmp, // comparison result between the directory source and the destination
-    entries: EntryCmpMap<'a>, // comparison results for each sub-entry
+    entries: EntryDeltaMap<'a>, // comparison results for each sub-entry
 }
 
 impl<'a> DirDelta<'a> {
@@ -32,7 +32,7 @@ impl<'a> DirDelta<'a> {
         source: &'a DirEntry,
         dest: &'a DirEntry,
         diff: DirCmp,
-        entries: EntryCmpMap<'a>,
+        entries: EntryDeltaMap<'a>,
     ) -> Self {
         DirDelta {
             source,
@@ -54,7 +54,7 @@ impl<'a> DirDelta<'a> {
 }
 
 /// Represents the structure of a directory entry.
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct DirEntry {
     // directory path
     path: PathBuf,
@@ -63,13 +63,15 @@ pub struct DirEntry {
 }
 
 impl DirEntry {
-    /// Creates a new directory entry.
+    /// Creates a new directory entry by visiting it.
     fn new(path: &Path) -> Result<DirEntry, Error> {
         if path.is_dir() {
-            Ok(DirEntry {
+            let mut entry = DirEntry {
                 path: path.to_path_buf(),
                 entries: HashMap::new(),
-            })
+            };
+            entry.visit()?;
+            Ok(entry)
         } else {
             Err(format_err!(
                 "The given directory '{:?}' does not exist!",
@@ -131,6 +133,32 @@ impl DirEntry {
         Ok(DirDelta::new(self, other, diff, entries))
     }
 
+    /// Visit and populate the directory entry.
+    fn visit(&mut self) -> Result<(), Error> {
+        // iterate over the directory entries
+        for e in fs::read_dir(&self.path)? {
+            let e = e?;
+            let path = e.path();
+
+            // get the entry filename if any
+            let file_name = path.file_name().map(|s| PathBuf::from(s)).ok_or(
+                format_err!("Cannot get the filename for '{:?}'", path),
+            )?;
+
+            if path.is_dir() {
+                debug!("New sub-directory: {:?}", path);
+                // dfs with recursion
+                let dir = Entry::new_dir(&path)?;
+                self.entries.insert(file_name, dir);
+            } else if path.is_file() {
+                debug!("New file: {:?}", path);
+                self.entries
+                    .insert(file_name, Entry::File(FileEntry::new(&path)?));
+            }
+        }
+        Ok(())
+    }
+
     /// Gets the directory path.
     pub fn path(&self) -> &Path {
         self.path.as_path()
@@ -147,7 +175,7 @@ enum FileCmp {
 
 /// Represents the delta between the file entry it points to and the file entry
 /// it has been compared to.
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct FileDelta<'a> {
     source: &'a FileEntry, // source file entry used for the comparison
     dest: &'a FileEntry,   // destination file entry used for the comparison
@@ -177,7 +205,7 @@ impl<'a> FileDelta<'a> {
 }
 
 /// Represents a file entry.
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct FileEntry {
     // file path
     path: PathBuf,
@@ -240,14 +268,14 @@ impl FileEntry {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum EntryDelta<'a> {
     Dir(DirDelta<'a>),
     File(FileDelta<'a>),
     NotFound { entry: &'a Entry, path: PathBuf }, // `entry` not found in the path
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum Entry {
     // Directory
     Dir(DirEntry),
@@ -258,10 +286,8 @@ pub enum Entry {
 impl Entry {
     /// Creates a new entry that represents a directory and populates its
     /// entries by visiting it.
-    pub fn visit_dir(path: &Path) -> Result<Entry, Error> {
-        let mut entry = Entry::Dir(DirEntry::new(path)?);
-        entry.visit()?;
-        Ok(entry)
+    pub fn new_dir(path: &Path) -> Result<Entry, Error> {
+        Ok(Entry::Dir(DirEntry::new(path)?))
     }
 
     /// Gets the path of the entry.
@@ -285,45 +311,6 @@ impl Entry {
         match self {
             Entry::Dir(e) => Ok(Entry::Dir(e.copy(dest)?)),
             Entry::File(e) => Ok(Entry::File(e.copy(dest)?)),
-        }
-    }
-
-    /// Visit and populate the Entry.
-    /// Only entries that represent directories can be visited.
-    fn visit(&mut self) -> Result<(), Error> {
-        // check that the entry is a directory
-        match self {
-            Entry::Dir(directory) => {
-                // iterate over the directory entries
-                for e in fs::read_dir(&directory.path)? {
-                    let e = e?;
-                    let path = e.path();
-
-                    // get the entry filename if any
-                    let file_name = path
-                        .file_name()
-                        .map(|s| PathBuf::from(s))
-                        .ok_or(format_err!(
-                            "Cannot get the filename for '{:?}'",
-                            path
-                        ))?;
-
-                    if path.is_dir() {
-                        debug!("New sub-directory: {:?}", path);
-                        // dfs with recursion
-                        let dir = Entry::visit_dir(&path)?;
-                        directory.entries.insert(file_name, dir);
-                    } else if path.is_file() {
-                        debug!("New file: {:?}", path);
-                        directory.entries.insert(
-                            file_name,
-                            Entry::File(FileEntry::new(&path)?),
-                        );
-                    }
-                }
-                Ok(())
-            }
-            _ => Err(err_msg("Cannot visit a file!")),
         }
     }
 
@@ -367,27 +354,348 @@ mod tests {
         static ref SLEEP_INTERVAL: time::Duration = time::Duration::from_millis(10);
     }
 
+    /// Creates a new directory in the given root path.
+    fn create_dir(root: &Path, name: &str) -> DirEntry {
+        let dir: PathBuf = [root, Path::new(name)].iter().collect();
+        fs::create_dir(&dir)
+            .expect(&format!("Cannot create directory '{:?}'", dir));
+        DirEntry::new(&dir)
+            .expect(&format!("Cannot create DirEntry '{:?}'", dir))
+    }
+
+    /// Writes a new empty fule in the given root path.
+    fn write_file(root: &Path, name: &str) -> FileEntry {
+        let file: PathBuf = [root, Path::new(name)].iter().collect();
+        thread::sleep(*SLEEP_INTERVAL);
+        fs::write(&file, "")
+            .expect(&format!("Cannot writes file '{:?}'", file));
+        FileEntry::new(&file)
+            .expect(&format!("Cannot create FileEntry '{:?}'", file))
+    }
+
+    /// Create the source and destination directories in a temp folder.
+    fn create_source_and_dest_dirs() -> (DirEntry, DirEntry) {
+        let temp_dir = env::temp_dir();;
+        // create source and destination directories
+        let source = Uuid::new_v4().to_simple().to_string();
+        let source = create_dir(temp_dir.as_path(), &source);
+        let dest = Uuid::new_v4().to_simple().to_string();
+        let dest = create_dir(temp_dir.as_path(), &dest);
+        (source, dest)
+    }
+
+    /// Asserts the given entry is marked as not found in the destination for
+    /// the given directory delta.
+    fn assert_entry_not_found_in_dest(
+        delta: &DirDelta,
+        entry_name: &str,
+        count: usize,
+    ) {
+        assert!(delta.diff == DirCmp::Different);
+        assert_eq!(delta.entries.len(), count);
+        let entry_delta = delta
+            .entries
+            .get(Path::new(entry_name))
+            .expect("Cannot get entry delta");
+        match entry_delta {
+            EntryDelta::NotFound { .. } => (),
+            _ => panic!("Invalid delta"),
+        }
+    }
+
+    /// Asserts that the given file is marked as found in the destination for
+    /// the given directory delta, and its time difference with the source file
+    /// is equal to the given one.
+    fn assert_delta_cmp_with_file(
+        delta: &DirDelta,
+        delta_diff: DirCmp,
+        file_name: &str,
+        file_cmp: FileCmp,
+        count: usize,
+    ) {
+        assert!(delta.diff == delta_diff);
+        assert_eq!(delta.entries.len(), count);
+        let entry_delta = delta
+            .entries
+            .get(Path::new(file_name))
+            .expect("Cannot get entry delta");
+        match entry_delta {
+            EntryDelta::File(delta) => assert!(delta.diff == file_cmp),
+            _ => panic!("Invalid delta"),
+        }
+    }
+
+    /// Asserts that the given directory is marked as found in the destination for
+    /// the given directory delta, and its time difference with the source
+    /// directory is equal to the given one.
+    fn assert_delta_cmp_with_dir(
+        delta: &DirDelta,
+        delta_diff: DirCmp,
+        dir_name: &str,
+        dir_cmp: DirCmp,
+        count: usize,
+    ) {
+        assert!(delta.diff == delta_diff);
+        assert_eq!(delta.entries.len(), count);
+        let entry_delta = delta
+            .entries
+            .get(Path::new(dir_name))
+            .expect("Cannot get entry delta");
+        match entry_delta {
+            EntryDelta::Dir(delta) => assert!(delta.diff == dir_cmp),
+            _ => panic!("Invalid delta"),
+        }
+    }
+
+    #[test]
+    fn test_cmp_dir() {
+        let (mut source, mut dest) = create_source_and_dest_dirs();
+        let source_path = source.path().to_path_buf();
+        let dest_path = dest.path().to_path_buf();
+
+        // comparing an entry with itself should not show any difference
+        let delta = source
+            .cmp(&source)
+            .expect("Cannot compare directory entries");
+        assert!(delta.diff == DirCmp::Same);
+        assert!(delta.entries.is_empty());
+        // both with no files, the two directories are the same
+        let delta =
+            source.cmp(&dest).expect("Cannot compare directory entries");
+        assert!(delta.diff == DirCmp::Same);
+        assert!(delta.entries.is_empty());
+
+        // add one file to source
+        let file1_name = "file1";
+        write_file(&source_path, file1_name);
+
+        // file1 exists only on the source
+        source.visit().expect("Cannot visit source directory");
+        let delta =
+            source.cmp(&dest).expect("Cannot compare directory entries");
+        assert_entry_not_found_in_dest(&delta, file1_name, 1);
+
+        // but the two folders are the same when seen from the destination
+        // (no entry in destination is missing in source)
+        let delta =
+            dest.cmp(&source).expect("Cannot compare directory entries");
+        assert!(delta.diff == DirCmp::Same);
+        assert!(delta.entries.is_empty());
+
+        // add same file to destination
+        write_file(&dest_path, file1_name);
+
+        // file1 now exists in both directories
+        dest.visit().expect("Cannot visit dest directory");
+        let delta =
+            source.cmp(&dest).expect("Cannot compare directory entries");
+        // file i1 n source is older
+        assert_delta_cmp_with_file(
+            &delta,
+            DirCmp::Different,
+            file1_name,
+            FileCmp::Older,
+            1,
+        );
+        let delta =
+            dest.cmp(&source).expect("Cannot compare directory entries");
+        // file 1 is newer in dest
+        assert_delta_cmp_with_file(
+            &delta,
+            DirCmp::Different,
+            file1_name,
+            FileCmp::Newer,
+            1,
+        );
+
+        // add a new file in the destination directory
+        let file2_name = "file2";
+        write_file(&dest_path, file2_name);
+        let delta =
+            source.cmp(&dest).expect("Cannot compare directory entries");
+        // only file 1 is seen from source an it is older than file 1 in dest
+        assert_delta_cmp_with_file(
+            &delta,
+            DirCmp::Different,
+            file1_name,
+            FileCmp::Older,
+            1,
+        );
+        dest.visit().expect("Cannot visit dest directory");
+        let delta =
+            dest.cmp(&source).expect("Cannot compare directory entries");
+        // dest has 2 files and file 1 is newer that file 1 in source
+        assert_delta_cmp_with_file(
+            &delta,
+            DirCmp::Different,
+            file1_name,
+            FileCmp::Newer,
+            2,
+        );
+        // file 2 only exist in dest
+        assert_entry_not_found_in_dest(&delta, file2_name, 2);
+    }
+
+    #[test]
+    fn test_cmp_sub_dir() {
+        let (mut source, mut dest) = create_source_and_dest_dirs();
+
+        // create subdirectory in source
+        let dir1_name = "dir1";
+        let source_dir1 = create_dir(source.path(), dir1_name);
+
+        // dir 1 only exists in source
+        source.visit().expect("Cannot visit source directory");
+        let delta =
+            source.cmp(&dest).expect("Cannot compare directory entries");
+        assert_entry_not_found_in_dest(&delta, dir1_name, 1);
+
+        // but the two folders are the same when seen from the destination
+        // (no entry in destination is missing in source)
+        let delta =
+            dest.cmp(&source).expect("Cannot compare directory entries");
+        assert!(delta.diff == DirCmp::Same);
+        assert!(delta.entries.is_empty());
+
+        // create dir1 in dest
+        let dest_dir1 = create_dir(dest.path(), dir1_name);
+
+        // dir 1 exists both in source and destination
+        source.visit().expect("Cannot visit source directory");
+        dest.visit().expect("Cannot visit dest directory");
+        let delta =
+            source.cmp(&dest).expect("Cannot compare directory entries");
+        assert_delta_cmp_with_dir(
+            &delta,
+            DirCmp::Same,
+            dir1_name,
+            DirCmp::Same,
+            1,
+        );
+
+        // create sub-dir in source
+        let sub_dir1_name = "sub_dir1";
+        let mut source_sub_dir1 = create_dir(source_dir1.path(), sub_dir1_name);
+        source.visit().expect("Cannot visit source directory");
+        let delta =
+            source.cmp(&dest).expect("Cannot compare directory entries");
+        // source and dest are different because dir 1 is different since it
+        // contains a sub-directory only in source
+        assert_delta_cmp_with_dir(
+            &delta,
+            DirCmp::Different,
+            dir1_name,
+            DirCmp::Different,
+            1,
+        );
+
+        // but the two folders are the same when seen from the destination
+        // (no entry in destination is missing in source)
+        let delta =
+            dest.cmp(&source).expect("Cannot compare directory entries");
+        assert!(delta.diff == DirCmp::Same);
+        assert_eq!(delta.entries.len(), 1);
+
+        // create sub-dir in dest
+        let mut dest_sub_dir1 = create_dir(dest_dir1.path(), sub_dir1_name);
+        dest.visit().expect("Cannot visit dest directory");
+        let delta =
+            source.cmp(&dest).expect("Cannot compare directory entries");
+        // both source and dest contain the same entries
+        assert!(delta.diff == DirCmp::Same);
+        assert_eq!(delta.entries.len(), 1);
+
+        // add file 1 to source sub-directory
+        let file1_name = "file1";
+        write_file(source_sub_dir1.path(), file1_name);
+        source.visit().expect("Cannot visit source directory");
+        let delta =
+            source.cmp(&dest).expect("Cannot compare directory entries");
+        // source and dest are different because dir 1 is different since it
+        // contains a sub-directory that has files only in source
+        assert_delta_cmp_with_dir(
+            &delta,
+            DirCmp::Different,
+            dir1_name,
+            DirCmp::Different,
+            1,
+        );
+
+        // add file 1 and file 2 to dest sub directory and then file 2 to source,
+        // so that file 1 is newer in source but file 2 is newer in dest
+        let file2_name = "file2";
+        write_file(dest_sub_dir1.path(), file1_name);
+        write_file(dest_sub_dir1.path(), file2_name);
+        write_file(source_sub_dir1.path(), file2_name);
+        source.visit().expect("Cannot visit source directory");
+        dest.visit().expect("Cannot visit dest directory");
+        let delta =
+            source.cmp(&dest).expect("Cannot compare directory entries");
+        // source and dest are different because the files contained in both
+        // directories are the same but their timestamps are different
+        assert_delta_cmp_with_dir(
+            &delta,
+            DirCmp::Different,
+            dir1_name,
+            DirCmp::Different,
+            1,
+        );
+
+        // compare the sub-directories with files
+        source_sub_dir1
+            .visit()
+            .expect("Cannot visit source directory");
+        dest_sub_dir1.visit().expect("Cannot visit dest directory");
+
+        // source vs dest
+        let delta = source_sub_dir1
+            .cmp(&dest_sub_dir1)
+            .expect("Cannot compare directory entries");
+        assert_delta_cmp_with_file(
+            &delta,
+            DirCmp::Different,
+            file1_name,
+            FileCmp::Older,
+            2,
+        );
+        assert_delta_cmp_with_file(
+            &delta,
+            DirCmp::Different,
+            file2_name,
+            FileCmp::Newer,
+            2,
+        );
+
+        // dest vs source
+        let delta = dest_sub_dir1
+            .cmp(&source_sub_dir1)
+            .expect("Cannot compare directory entries");
+        assert_delta_cmp_with_file(
+            &delta,
+            DirCmp::Different,
+            file1_name,
+            FileCmp::Newer,
+            2,
+        );
+        assert_delta_cmp_with_file(
+            &delta,
+            DirCmp::Different,
+            file2_name,
+            FileCmp::Older,
+            2,
+        );
+    }
+
     #[test]
     fn test_cmp_files() {
         let temp_dir = env::temp_dir();
         // create older file
         let older = Uuid::new_v4().to_simple().to_string();
-        let older: PathBuf =
-            [temp_dir.as_path(), Path::new(&older)].iter().collect();
-        fs::write(&older, "").expect("Cannot write older file");
-        thread::sleep(*SLEEP_INTERVAL);
+        let older = write_file(&temp_dir, &older);
         // create newer file
         let newer = Uuid::new_v4().to_simple().to_string();
-        let newer: PathBuf =
-            [temp_dir.as_path(), Path::new(&newer)].iter().collect();
-        assert_ne!(older, newer);
-        fs::write(&newer, "").expect("Cannot write newer file");
+        let newer = write_file(&temp_dir, &newer);
 
-        // create entries
-        let older =
-            FileEntry::new(older.as_path()).expect("Cannot create older entry");
-        let newer =
-            FileEntry::new(newer.as_path()).expect("Cannot create newer entry");
         // compare entries
         let delta = older.cmp(&newer).expect("Cannot compare entries");
         assert_eq!(delta.diff, FileCmp::Older);

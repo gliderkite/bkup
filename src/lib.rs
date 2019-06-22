@@ -15,10 +15,10 @@ use std::path::Path;
 /// Runs the directories comparison.
 pub fn run(source: &Path, dest: &Path) -> Result<(), Error> {
     info!("Exploring directory {:?}", source);
-    let source = Entry::visit_dir(source)?;
+    let source = Entry::new_dir(source)?;
 
     info!("Exploring directory {:?}", dest);
-    let dest = Entry::visit_dir(dest)?;
+    let dest = Entry::new_dir(dest)?;
 
     info!("Computing difference");
     let diff = source.cmp(&dest)?;
