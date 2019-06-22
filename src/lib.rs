@@ -5,9 +5,9 @@ extern crate failure;
 #[macro_use]
 extern crate lazy_static;
 
-mod entries;
+mod entry;
 
-use entries::Entry;
+use entry::Entry;
 use failure::Error;
 use log::*;
 use std::path::Path;
