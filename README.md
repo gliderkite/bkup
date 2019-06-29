@@ -21,10 +21,9 @@ For a list of possible options run with `--help`:
 
 ```
 USAGE:
-    bkup [FLAGS] [SUBCOMMAND]
+    bkup [SUBCOMMAND]
 
 FLAGS:
-    -d, --daemon     Run as a background process
     -h, --help       Prints help information
     -V, --version    Prints version information
 
