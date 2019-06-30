@@ -1,5 +1,6 @@
 use failure::{err_msg, Error};
 use fs_extra::dir;
+use ignore::gitignore::Gitignore;
 use log::*;
 use std::cmp::Ordering;
 use std::collections::HashMap;
@@ -64,31 +65,31 @@ pub struct DirEntry {
 
 impl DirEntry {
     /// Creates a new directory entry by visiting it.
-    fn new(path: &Path) -> Result<DirEntry, Error> {
+    fn new(path: &Path, ignore: Option<&Gitignore>) -> Result<DirEntry, Error> {
         if path.is_dir() {
             let mut entry = DirEntry {
                 path: path.to_path_buf(),
                 entries: HashMap::new(),
             };
-            entry.visit()?;
+            entry.visit(ignore)?;
             Ok(entry)
         } else {
             Err(format_err!(
-                "The given directory '{:?}' does not exist!",
+                "The given directory '{:?}' does not exist",
                 path
             ))
         }
     }
 
     /// Copies self into the given destination.
-    fn copy(&self, dest: &Path) -> Result<DirEntry, Error> {
-        info!("Copy directory {:?} to {:?}", self.path, dest);
+    fn copy(&self, dest: &Path) -> Result<(), Error> {
+        info!("Copy directory '{:?}' to '{:?}'", self.path, dest);
         fs::create_dir(dest)?;
         let parent = dest
             .parent()
-            .ok_or(format_err!("Cannot get parent of {:?}", dest))?;
+            .ok_or(format_err!("Cannot get parent of '{:?}'", dest))?;
         dir::copy(&self.path, parent, &dir::CopyOptions::new())?;
-        DirEntry::new(dest)
+        Ok(())
     }
 
     /// Compares self with another directory entry and returns the delta.
@@ -110,7 +111,7 @@ impl DirEntry {
                     path: dest_path,
                 })
             };
-            debug!("Difference for {:?}: {:?}", e1, cmp_res);
+            debug!("Difference for '{:?}': {:?}", e1, cmp_res);
             let cmp_res = cmp_res?;
 
             // check if all the entries are the same by finding the first difference
@@ -134,24 +135,33 @@ impl DirEntry {
     }
 
     /// Visit and populate the directory entry.
-    fn visit(&mut self) -> Result<(), Error> {
+    fn visit(&mut self, ignore: Option<&Gitignore>) -> Result<(), Error> {
         // iterate over the directory entries
         for e in fs::read_dir(&self.path)? {
             let e = e?;
             let path = e.path();
+            let is_dir = path.is_dir();
+
+            // check if this path must be ignored
+            if let Some(ignore) = ignore {
+                if ignore.matched(&path, is_dir).is_ignore() {
+                    info!("Ignoring '{:?}'", path);
+                    continue;
+                }
+            }
 
             // get the entry filename if any
             let file_name = path.file_name().map(|s| PathBuf::from(s)).ok_or(
                 format_err!("Cannot get the filename for '{:?}'", path),
             )?;
 
-            if path.is_dir() {
-                debug!("New sub-directory: {:?}", path);
+            if is_dir {
+                debug!("New sub-directory: '{:?}'", path);
                 // dfs with recursion
-                let dir = Entry::new_dir(&path)?;
+                let dir = Entry::directory(&path, ignore)?;
                 self.entries.insert(file_name, dir);
             } else if path.is_file() {
-                debug!("New file: {:?}", path);
+                debug!("New file: '{:?}'", path);
                 self.entries
                     .insert(file_name, Entry::File(FileEntry::new(&path)?));
             }
@@ -219,15 +229,15 @@ impl FileEntry {
                 path: path.to_path_buf(),
             })
         } else {
-            Err(format_err!("The given file '{:?}' does not exist!", path))
+            Err(format_err!("The given file '{:?}' does not exist", path))
         }
     }
 
     /// Copies self into the given destination.
-    pub fn copy(&self, dest: &Path) -> Result<FileEntry, Error> {
-        info!("Copy file {:?} to {:?}", self.path, dest);
+    pub fn copy(&self, dest: &Path) -> Result<(), Error> {
+        info!("Copy file '{:?}' to '{:?}'", self.path, dest);
         fs::copy(&self.path, dest)?;
-        FileEntry::new(dest)
+        Ok(())
     }
 
     /// Compares self with another file entry.
@@ -295,7 +305,7 @@ impl<'a> EntryDelta<'a> {
                 }
             }
             EntryDelta::NotFound { entry, path } => {
-                debug!("Not found: {:?} in {:?}", entry, path);
+                debug!("Not found: {:?} in '{:?}'", entry, path);
                 entry.copy(path)?;
             }
         };
@@ -314,8 +324,11 @@ pub enum Entry {
 impl Entry {
     /// Creates a new entry that represents a directory and populates its
     /// entries by visiting it.
-    pub fn new_dir(path: &Path) -> Result<Entry, Error> {
-        Ok(Entry::Dir(DirEntry::new(path)?))
+    pub fn directory(
+        path: &Path,
+        ignore: Option<&Gitignore>,
+    ) -> Result<Entry, Error> {
+        Ok(Entry::Dir(DirEntry::new(path, ignore)?))
     }
 
     /// Gets the path of the entry.
@@ -335,11 +348,12 @@ impl Entry {
     }
 
     /// Copies self into the given destination.
-    pub fn copy(&self, dest: &Path) -> Result<Entry, Error> {
+    fn copy(&self, dest: &Path) -> Result<(), Error> {
         match self {
-            Entry::Dir(e) => Ok(Entry::Dir(e.copy(dest)?)),
-            Entry::File(e) => Ok(Entry::File(e.copy(dest)?)),
-        }
+            Entry::Dir(e) => e.copy(dest)?,
+            Entry::File(e) => e.copy(dest)?,
+        };
+        Ok(())
     }
 
     /// Compares self with another entry.
@@ -382,12 +396,15 @@ mod tests {
         static ref SLEEP_INTERVAL: time::Duration = time::Duration::from_millis(10);
     }
 
+    // Empty gitignore matcher that never matches anything.
+    const IGNORE: Option<&Gitignore> = None;
+
     /// Creates a new directory in the given root path.
     fn create_dir(root: &Path, name: &str) -> DirEntry {
         let dir: PathBuf = [root, Path::new(name)].iter().collect();
         fs::create_dir(&dir)
             .expect(&format!("Cannot create directory '{:?}'", dir));
-        DirEntry::new(&dir)
+        DirEntry::new(&dir, IGNORE)
             .expect(&format!("Cannot create DirEntry '{:?}'", dir))
     }
 
@@ -498,7 +515,7 @@ mod tests {
         write_file(&source_path, file1_name);
 
         // file1 exists only on the source
-        source.visit().expect("Cannot visit source directory");
+        source.visit(IGNORE).expect("Cannot visit source directory");
         let delta =
             source.cmp(&dest).expect("Cannot compare directory entries");
         assert_entry_not_found_in_dest(&delta, file1_name, 1);
@@ -514,7 +531,7 @@ mod tests {
         write_file(&dest_path, file1_name);
 
         // file1 now exists in both directories
-        dest.visit().expect("Cannot visit dest directory");
+        dest.visit(IGNORE).expect("Cannot visit dest directory");
         let delta =
             source.cmp(&dest).expect("Cannot compare directory entries");
         // file i1 n source is older
@@ -549,7 +566,7 @@ mod tests {
             FileCmp::Older,
             1,
         );
-        dest.visit().expect("Cannot visit dest directory");
+        dest.visit(IGNORE).expect("Cannot visit dest directory");
         let delta =
             dest.cmp(&source).expect("Cannot compare directory entries");
         // dest has 2 files and file 1 is newer that file 1 in source
@@ -573,7 +590,7 @@ mod tests {
         let source_dir1 = create_dir(source.path(), dir1_name);
 
         // dir 1 only exists in source
-        source.visit().expect("Cannot visit source directory");
+        source.visit(IGNORE).expect("Cannot visit source directory");
         let delta =
             source.cmp(&dest).expect("Cannot compare directory entries");
         assert_entry_not_found_in_dest(&delta, dir1_name, 1);
@@ -589,8 +606,8 @@ mod tests {
         let dest_dir1 = create_dir(dest.path(), dir1_name);
 
         // dir 1 exists both in source and destination
-        source.visit().expect("Cannot visit source directory");
-        dest.visit().expect("Cannot visit dest directory");
+        source.visit(IGNORE).expect("Cannot visit source directory");
+        dest.visit(IGNORE).expect("Cannot visit dest directory");
         let delta =
             source.cmp(&dest).expect("Cannot compare directory entries");
         assert_delta_cmp_with_dir(
@@ -604,7 +621,7 @@ mod tests {
         // create sub-dir in source
         let sub_dir1_name = "sub_dir1";
         let mut source_sub_dir1 = create_dir(source_dir1.path(), sub_dir1_name);
-        source.visit().expect("Cannot visit source directory");
+        source.visit(IGNORE).expect("Cannot visit source directory");
         let delta =
             source.cmp(&dest).expect("Cannot compare directory entries");
         // source and dest are different because dir 1 is different since it
@@ -626,7 +643,7 @@ mod tests {
 
         // create sub-dir in dest
         let mut dest_sub_dir1 = create_dir(dest_dir1.path(), sub_dir1_name);
-        dest.visit().expect("Cannot visit dest directory");
+        dest.visit(IGNORE).expect("Cannot visit dest directory");
         let delta =
             source.cmp(&dest).expect("Cannot compare directory entries");
         // both source and dest contain the same entries
@@ -636,7 +653,7 @@ mod tests {
         // add file 1 to source sub-directory
         let file1_name = "file1";
         write_file(source_sub_dir1.path(), file1_name);
-        source.visit().expect("Cannot visit source directory");
+        source.visit(IGNORE).expect("Cannot visit source directory");
         let delta =
             source.cmp(&dest).expect("Cannot compare directory entries");
         // source and dest are different because dir 1 is different since it
@@ -655,8 +672,8 @@ mod tests {
         write_file(dest_sub_dir1.path(), file1_name);
         write_file(dest_sub_dir1.path(), file2_name);
         write_file(source_sub_dir1.path(), file2_name);
-        source.visit().expect("Cannot visit source directory");
-        dest.visit().expect("Cannot visit dest directory");
+        source.visit(IGNORE).expect("Cannot visit source directory");
+        dest.visit(IGNORE).expect("Cannot visit dest directory");
         let delta =
             source.cmp(&dest).expect("Cannot compare directory entries");
         // source and dest are different because the files contained in both
@@ -671,9 +688,11 @@ mod tests {
 
         // compare the sub-directories with files
         source_sub_dir1
-            .visit()
+            .visit(IGNORE)
             .expect("Cannot visit source directory");
-        dest_sub_dir1.visit().expect("Cannot visit dest directory");
+        dest_sub_dir1
+            .visit(IGNORE)
+            .expect("Cannot visit dest directory");
 
         // source vs dest
         let delta = source_sub_dir1
@@ -735,9 +754,11 @@ mod tests {
         assert_eq!(delta.diff, FileCmp::Same);
 
         // create a copy of the older file
-        let copy = older
+        older
             .copy(newer.path.as_path())
             .expect("Cannot create a copy");
+        let copy = FileEntry::new(newer.path.as_path())
+            .expect("Cannot create FileEntry");
         let delta = older.cmp(&copy).expect("Cannot compare entries");
         assert_eq!(delta.diff, FileCmp::Older);
         let delta = copy.cmp(&older).expect("Cannot compare entries");
