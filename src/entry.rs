@@ -764,4 +764,33 @@ mod tests {
         let delta = copy.cmp(&older).expect("Cannot compare entries");
         assert_eq!(delta.diff, FileCmp::Newer);
     }
+
+    #[test]
+    fn test_entries_to_ignore() {
+        let (mut source, dest) = create_source_and_dest_dirs();
+        let source_path = source.path().to_path_buf();
+
+        let ignore_filename = ".bkignore";
+        let filename_to_ignore = "ignore.txt";
+
+        // create .bkignore file in source directory
+        let ignore_path: PathBuf =
+            [source_path.as_path(), Path::new(ignore_filename)]
+                .iter()
+                .collect();
+        fs::write(&ignore_path, filename_to_ignore).expect("Cannot write file");
+        let (ignore, _) = Gitignore::new(ignore_path);
+
+        // add another file to source
+        write_file(&source_path, filename_to_ignore);
+
+        // file1 exists only on the source but since it has to be ignored the
+        // only difference must be the .bkignore file itself
+        source
+            .visit(Some(&ignore))
+            .expect("Cannot visit source directory");
+        let delta =
+            source.cmp(&dest).expect("Cannot compare directory entries");
+        assert_entry_not_found_in_dest(&delta, ignore_filename, 1);
+    }
 }
