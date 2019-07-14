@@ -37,7 +37,7 @@ If you wish to ignore specific files or folder, it is possible to define a
 `.bkignore`.
 
 
-## TODO
+## Roadmap
 
 - [X] Basic backup implementation: source to destination for older files (*one way*).
 - [X] Unit and integration Tests for main functionalities.
