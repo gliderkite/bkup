@@ -9,7 +9,6 @@ clap = { version = "2.33.0", features = ["yaml"] }
 dotenv = "0.13.0"
 env_logger = "0.6.1"
 failure = "0.1.5"
-fs_extra = "1.1.0"
 ignore = "0.4.7"
 log = "0.4.6"
 

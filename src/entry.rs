@@ -1,5 +1,4 @@
 use failure::{err_msg, Error};
-use fs_extra::dir;
 use ignore::gitignore::Gitignore;
 use log::*;
 use std::cmp::Ordering;
@@ -59,7 +58,7 @@ impl<'a> DirDelta<'a> {
 pub struct DirEntry {
     // directory path
     path: PathBuf,
-    // sub-entries where the key is the file name
+    // sub-entries where the key is the entry name
     entries: HashMap<PathBuf, Entry>,
 }
 
@@ -84,11 +83,23 @@ impl DirEntry {
     /// Copies self into the given destination.
     fn copy(&self, dest: &Path) -> Result<(), Error> {
         info!("Copy directory '{:?}' to '{:?}'", self.path, dest);
-        fs::create_dir(dest)?;
-        let parent = dest
-            .parent()
-            .ok_or(format_err!("Cannot get parent of '{:?}'", dest))?;
-        dir::copy(&self.path, parent, &dir::CopyOptions::new())?;
+        // create destination directory
+        if !dest.is_dir() {
+            fs::create_dir(dest)?;
+        }
+        // iterate over each source entry to copy it
+        for (filename, entry) in &self.entries {
+            let dest_entry: PathBuf =
+                [dest, Path::new(filename)].iter().collect();
+            match entry {
+                Entry::Dir(dir) => {
+                    dir.copy(&dest_entry)?;
+                }
+                Entry::File(file) => {
+                    file.copy(&dest_entry)?;
+                }
+            }
+        }
         Ok(())
     }
 
