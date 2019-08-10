@@ -5,12 +5,12 @@ authors = ["Marco C <gliderkite@gmail.com>"]
 edition = "2018"
 
 [dependencies]
-clap = { version = "2.33.0", features = ["yaml"] }
-dotenv = "0.13.0"
-env_logger = "0.6.1"
-failure = "0.1.5"
-ignore = "0.4.7"
-log = "0.4.6"
+clap = { version = "2.33", features = ["yaml"] }
+dotenv = "0.13"
+env_logger = "0.6"
+failure = "0.1"
+ignore = "0.4"
+log = "0.4"
 
 [dev-dependencies]
 lazy_static = "1.3"
