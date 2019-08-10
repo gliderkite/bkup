@@ -48,6 +48,7 @@ If you wish to ignore specific files or folder, it is possible to define a
     - [ ] Concurrent: async runtime (tokio) with pool of threads and reactor.
 - Configuration:
     - [X] YAML CLI clap commands.
+    - [X] Add accuracy parameter to take into account different filesystems.
     - [ ] *Daemonize* process to run in background.
     - [ ] Keep alive background process and backup every N seconds.
     - [ ] Read JSON configuration with multiple sources and destinations.

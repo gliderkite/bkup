@@ -1,11 +1,11 @@
 use failure::{err_msg, Error};
 use ignore::gitignore::Gitignore;
 use log::*;
-use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::fmt;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 
 type EntryDeltaMap<'a> = HashMap<&'a Path, EntryDelta<'a>>;
 
@@ -104,7 +104,11 @@ impl DirEntry {
     }
 
     /// Compares self with another directory entry and returns the delta.
-    fn cmp<'a>(&'a self, other: &'a DirEntry) -> Result<DirDelta<'a>, Error> {
+    fn cmp<'a>(
+        &'a self,
+        other: &'a DirEntry,
+        accuracy: &'a Duration,
+    ) -> Result<DirDelta<'a>, Error> {
         let mut entries = HashMap::with_capacity(self.entries.len());
         // true only if all the entries of self and other are the same
         let mut is_same = true;
@@ -112,7 +116,7 @@ impl DirEntry {
         // the second directory
         for (name, e1) in &self.entries {
             let cmp_res = if let Some(e2) = other.entries.get(name) {
-                e1.cmp(e2)
+                e1.cmp(e2, accuracy)
             } else {
                 let dest_path: PathBuf =
                     [other.path.as_path(), e1.file_name()?].iter().collect();
@@ -252,7 +256,12 @@ impl FileEntry {
     }
 
     /// Compares self with another file entry.
-    fn cmp<'a>(&'a self, other: &'a FileEntry) -> Result<FileDelta<'a>, Error> {
+    fn cmp<'a>(
+        &'a self,
+        other: &'a FileEntry,
+        accuracy: &'a Duration,
+    ) -> Result<FileDelta<'a>, Error> {
+        use std::time::UNIX_EPOCH;
         let path1 = self.path.as_path();
         let path2 = other.path.as_path();
         let name1 = path1.file_name();
@@ -266,13 +275,13 @@ impl FileEntry {
                     warn!("Comparing files with different file names");
                 }
                 // check modification time
-                let t1 = fs::metadata(path1)?.modified()?;
-                let t2 = fs::metadata(path2)?.modified()?;
-                let diff = match t1.cmp(&t2) {
-                    Ordering::Less => FileCmp::Older,
-                    Ordering::Greater => FileCmp::Newer,
-                    Ordering::Equal => FileCmp::Same,
-                };
+                let t1 = fs::metadata(path1)?
+                    .modified()?
+                    .duration_since(UNIX_EPOCH)?;
+                let t2 = fs::metadata(path2)?
+                    .modified()?
+                    .duration_since(UNIX_EPOCH)?;
+                let diff = FileEntry::cmp_modified(t1, t2, accuracy);
                 Ok(FileDelta::new(self, other, diff))
             }
             _ => Err(format_err!(
@@ -280,6 +289,32 @@ impl FileEntry {
                 path1,
                 path2
             )),
+        }
+    }
+
+    /// Compares the source and destination modified times taking into account
+    /// the given accuracy.
+    fn cmp_modified(
+        source: Duration,
+        dest: Duration,
+        accuracy: &Duration,
+    ) -> FileCmp {
+        if source > dest {
+            // source may be newer
+            if (source - *accuracy) > dest {
+                FileCmp::Newer
+            } else {
+                FileCmp::Same
+            }
+        } else if dest > source {
+            // source may be older (dest may be newer)
+            if (dest - *accuracy) > source {
+                FileCmp::Older
+            } else {
+                FileCmp::Same
+            }
+        } else {
+            FileCmp::Same
         }
     }
 
@@ -371,15 +406,19 @@ impl Entry {
     pub fn cmp<'a>(
         &'a self,
         other: &'a Entry,
+        accuracy: &'a Duration,
     ) -> Result<EntryDelta<'a>, Error> {
-        debug!("Comparing: {} to {}", self, other);
+        debug!(
+            "Comparing: '{}' to '{}' ({:?} accuracy)",
+            self, other, accuracy
+        );
         match (self, other) {
             (Entry::Dir(dir1), Entry::Dir(dir2)) => {
-                let delta = dir1.cmp(dir2)?;
+                let delta = dir1.cmp(dir2, accuracy)?;
                 Ok(EntryDelta::Dir(delta))
             }
             (Entry::File(f1), Entry::File(f2)) => {
-                let delta = f1.cmp(f2)?;
+                let delta = f1.cmp(f2, accuracy)?;
                 Ok(EntryDelta::File(delta))
             }
             _ => Err(err_msg("Cannot compare different type of entries!")),
@@ -404,7 +443,7 @@ mod tests {
     lazy_static! {
         /// Interval used to write files with significant difference on the
         /// modification time stored in the metadata.
-        static ref SLEEP_INTERVAL: time::Duration = time::Duration::from_millis(1000);
+        static ref ACCURACY: time::Duration = time::Duration::from_millis(2000);
     }
 
     // Empty gitignore matcher that never matches anything.
@@ -418,13 +457,14 @@ mod tests {
 
         // comparing an entry with itself should not show any difference
         let delta = source
-            .cmp(&source)
+            .cmp(&source, &ACCURACY)
             .expect("Cannot compare directory entries");
         assert!(delta.diff == DirCmp::Same);
         assert!(delta.entries.is_empty());
         // both with no files, the two directories are the same
-        let delta =
-            source.cmp(&dest).expect("Cannot compare directory entries");
+        let delta = source
+            .cmp(&dest, &ACCURACY)
+            .expect("Cannot compare directory entries");
         assert!(delta.diff == DirCmp::Same);
         assert!(delta.entries.is_empty());
 
@@ -434,14 +474,16 @@ mod tests {
 
         // file1 exists only on the source
         source.visit(IGNORE).expect("Cannot visit source directory");
-        let delta =
-            source.cmp(&dest).expect("Cannot compare directory entries");
+        let delta = source
+            .cmp(&dest, &ACCURACY)
+            .expect("Cannot compare directory entries");
         assert_entry_not_found_in_dest(&delta, file1_name, 1);
 
         // but the two folders are the same when seen from the destination
         // (no entry in destination is missing in source)
-        let delta =
-            dest.cmp(&source).expect("Cannot compare directory entries");
+        let delta = dest
+            .cmp(&source, &ACCURACY)
+            .expect("Cannot compare directory entries");
         assert!(delta.diff == DirCmp::Same);
         assert!(delta.entries.is_empty());
 
@@ -450,8 +492,9 @@ mod tests {
 
         // file1 now exists in both directories
         dest.visit(IGNORE).expect("Cannot visit dest directory");
-        let delta =
-            source.cmp(&dest).expect("Cannot compare directory entries");
+        let delta = source
+            .cmp(&dest, &ACCURACY)
+            .expect("Cannot compare directory entries");
         // file i1 n source is older
         assert_delta_cmp_with_file(
             &delta,
@@ -460,8 +503,9 @@ mod tests {
             FileCmp::Older,
             1,
         );
-        let delta =
-            dest.cmp(&source).expect("Cannot compare directory entries");
+        let delta = dest
+            .cmp(&source, &ACCURACY)
+            .expect("Cannot compare directory entries");
         // file 1 is newer in dest
         assert_delta_cmp_with_file(
             &delta,
@@ -474,8 +518,9 @@ mod tests {
         // add a new file in the destination directory
         let file2_name = "file2";
         write_file(&dest_path, file2_name);
-        let delta =
-            source.cmp(&dest).expect("Cannot compare directory entries");
+        let delta = source
+            .cmp(&dest, &ACCURACY)
+            .expect("Cannot compare directory entries");
         // only file 1 is seen from source an it is older than file 1 in dest
         assert_delta_cmp_with_file(
             &delta,
@@ -485,8 +530,9 @@ mod tests {
             1,
         );
         dest.visit(IGNORE).expect("Cannot visit dest directory");
-        let delta =
-            dest.cmp(&source).expect("Cannot compare directory entries");
+        let delta = dest
+            .cmp(&source, &ACCURACY)
+            .expect("Cannot compare directory entries");
         // dest has 2 files and file 1 is newer that file 1 in source
         assert_delta_cmp_with_file(
             &delta,
@@ -509,14 +555,16 @@ mod tests {
 
         // dir 1 only exists in source
         source.visit(IGNORE).expect("Cannot visit source directory");
-        let delta =
-            source.cmp(&dest).expect("Cannot compare directory entries");
+        let delta = source
+            .cmp(&dest, &ACCURACY)
+            .expect("Cannot compare directory entries");
         assert_entry_not_found_in_dest(&delta, dir1_name, 1);
 
         // but the two folders are the same when seen from the destination
         // (no entry in destination is missing in source)
-        let delta =
-            dest.cmp(&source).expect("Cannot compare directory entries");
+        let delta = dest
+            .cmp(&source, &ACCURACY)
+            .expect("Cannot compare directory entries");
         assert!(delta.diff == DirCmp::Same);
         assert!(delta.entries.is_empty());
 
@@ -526,8 +574,9 @@ mod tests {
         // dir 1 exists both in source and destination
         source.visit(IGNORE).expect("Cannot visit source directory");
         dest.visit(IGNORE).expect("Cannot visit dest directory");
-        let delta =
-            source.cmp(&dest).expect("Cannot compare directory entries");
+        let delta = source
+            .cmp(&dest, &ACCURACY)
+            .expect("Cannot compare directory entries");
         assert_delta_cmp_with_dir(
             &delta,
             DirCmp::Same,
@@ -540,8 +589,9 @@ mod tests {
         let sub_dir1_name = "sub_dir1";
         let mut source_sub_dir1 = create_dir(source_dir1.path(), sub_dir1_name);
         source.visit(IGNORE).expect("Cannot visit source directory");
-        let delta =
-            source.cmp(&dest).expect("Cannot compare directory entries");
+        let delta = source
+            .cmp(&dest, &ACCURACY)
+            .expect("Cannot compare directory entries");
         // source and dest are different because dir 1 is different since it
         // contains a sub-directory only in source
         assert_delta_cmp_with_dir(
@@ -554,16 +604,18 @@ mod tests {
 
         // but the two folders are the same when seen from the destination
         // (no entry in destination is missing in source)
-        let delta =
-            dest.cmp(&source).expect("Cannot compare directory entries");
+        let delta = dest
+            .cmp(&source, &ACCURACY)
+            .expect("Cannot compare directory entries");
         assert!(delta.diff == DirCmp::Same);
         assert_eq!(delta.entries.len(), 1);
 
         // create sub-dir in dest
         let mut dest_sub_dir1 = create_dir(dest_dir1.path(), sub_dir1_name);
         dest.visit(IGNORE).expect("Cannot visit dest directory");
-        let delta =
-            source.cmp(&dest).expect("Cannot compare directory entries");
+        let delta = source
+            .cmp(&dest, &ACCURACY)
+            .expect("Cannot compare directory entries");
         // both source and dest contain the same entries
         assert!(delta.diff == DirCmp::Same);
         assert_eq!(delta.entries.len(), 1);
@@ -572,8 +624,9 @@ mod tests {
         let file1_name = "file1";
         write_file(source_sub_dir1.path(), file1_name);
         source.visit(IGNORE).expect("Cannot visit source directory");
-        let delta =
-            source.cmp(&dest).expect("Cannot compare directory entries");
+        let delta = source
+            .cmp(&dest, &ACCURACY)
+            .expect("Cannot compare directory entries");
         // source and dest are different because dir 1 is different since it
         // contains a sub-directory that has files only in source
         assert_delta_cmp_with_dir(
@@ -592,8 +645,9 @@ mod tests {
         write_file(source_sub_dir1.path(), file2_name);
         source.visit(IGNORE).expect("Cannot visit source directory");
         dest.visit(IGNORE).expect("Cannot visit dest directory");
-        let delta =
-            source.cmp(&dest).expect("Cannot compare directory entries");
+        let delta = source
+            .cmp(&dest, &ACCURACY)
+            .expect("Cannot compare directory entries");
         // source and dest are different because the files contained in both
         // directories are the same but their timestamps are different
         assert_delta_cmp_with_dir(
@@ -614,7 +668,7 @@ mod tests {
 
         // source vs dest
         let delta = source_sub_dir1
-            .cmp(&dest_sub_dir1)
+            .cmp(&dest_sub_dir1, &ACCURACY)
             .expect("Cannot compare directory entries");
         assert_delta_cmp_with_file(
             &delta,
@@ -633,7 +687,7 @@ mod tests {
 
         // dest vs source
         let delta = dest_sub_dir1
-            .cmp(&source_sub_dir1)
+            .cmp(&source_sub_dir1, &ACCURACY)
             .expect("Cannot compare directory entries");
         assert_delta_cmp_with_file(
             &delta,
@@ -662,13 +716,21 @@ mod tests {
         let newer = write_file(&temp_dir, &newer);
 
         // compare entries
-        let delta = older.cmp(&newer).expect("Cannot compare entries");
+        let delta = older
+            .cmp(&newer, &ACCURACY)
+            .expect("Cannot compare entries");
         assert_eq!(delta.diff, FileCmp::Older);
-        let delta = older.cmp(&older).expect("Cannot compare entries");
+        let delta = older
+            .cmp(&older, &ACCURACY)
+            .expect("Cannot compare entries");
         assert_eq!(delta.diff, FileCmp::Same);
-        let delta = newer.cmp(&older).expect("Cannot compare entries");
+        let delta = newer
+            .cmp(&older, &ACCURACY)
+            .expect("Cannot compare entries");
         assert_eq!(delta.diff, FileCmp::Newer);
-        let delta = newer.cmp(&newer).expect("Cannot compare entries");
+        let delta = newer
+            .cmp(&newer, &ACCURACY)
+            .expect("Cannot compare entries");
         assert_eq!(delta.diff, FileCmp::Same);
 
         // create a copy of the older file
@@ -677,9 +739,11 @@ mod tests {
             .expect("Cannot create a copy");
         let copy = FileEntry::new(newer.path.as_path())
             .expect("Cannot create FileEntry");
-        let delta = older.cmp(&copy).expect("Cannot compare entries");
+        let delta =
+            older.cmp(&copy, &ACCURACY).expect("Cannot compare entries");
         assert_eq!(delta.diff, FileCmp::Same);
-        let delta = copy.cmp(&older).expect("Cannot compare entries");
+        let delta =
+            copy.cmp(&older, &ACCURACY).expect("Cannot compare entries");
         assert_eq!(delta.diff, FileCmp::Same);
     }
 
@@ -707,8 +771,9 @@ mod tests {
         source
             .visit(Some(&ignore))
             .expect("Cannot visit source directory");
-        let delta =
-            source.cmp(&dest).expect("Cannot compare directory entries");
+        let delta = source
+            .cmp(&dest, &ACCURACY)
+            .expect("Cannot compare directory entries");
         assert_entry_not_found_in_dest(&delta, ignore_filename, 1);
     }
 
@@ -724,7 +789,7 @@ mod tests {
     /// Writes a new empty fule in the given root path.
     fn write_file(root: &Path, name: &str) -> FileEntry {
         let file: PathBuf = [root, Path::new(name)].iter().collect();
-        thread::sleep(*SLEEP_INTERVAL);
+        thread::sleep(*ACCURACY);
         fs::write(&file, "")
             .expect(&format!("Cannot writes file '{:?}'", file));
         FileEntry::new(&file)

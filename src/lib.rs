@@ -12,10 +12,15 @@ use failure::Error;
 use ignore::gitignore::Gitignore;
 use log::*;
 use std::path::Path;
+use std::time::Duration;
 
 /// Updates the destination directory according to its delta with the source
 /// directory.
-pub fn update(source: &Path, dest: &Path) -> Result<(), Error> {
+pub fn update(
+    source: &Path,
+    dest: &Path,
+    accuracy: Duration,
+) -> Result<(), Error> {
     let (ignore, _) = Gitignore::new(".bkignore");
 
     info!("Exploring directory {:?}", source);
@@ -24,7 +29,7 @@ pub fn update(source: &Path, dest: &Path) -> Result<(), Error> {
     let dest = Entry::directory(dest, Some(&ignore))?;
 
     info!("Computing difference");
-    let delta = source.cmp(&dest)?;
+    let delta = source.cmp(&dest, &accuracy)?;
     debug!("Delta: {:?}", delta);
     info!("Updating destination");
     delta.clear()?;

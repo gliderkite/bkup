@@ -20,3 +20,9 @@ subcommands:
               help: Sets the path of the destination folder to update
               takes_value: true
               required: true
+          - accuracy:
+              short: a
+              long: accuracy
+              value_name: ACCURACY_MS
+              help: Sets the accuracy in ms for a source file to be considered newer than its destination
+              takes_value: true

@@ -5,13 +5,17 @@ use clap::{App, ArgMatches};
 use dotenv::dotenv;
 use failure::{err_msg, Error};
 use std::path::Path;
+use std::time::Duration;
 
 /// CLI commands
 const UPDATE_CMD: &str = "update";
-
 // CLI commands args
+const ACCURACY_ARG: &str = "accuracy";
 const DEST_ARG: &str = "dest";
 const SOURCE_ARG: &str = "source";
+
+// Default accuracy in ms (2s for FAT filesystem as worst case scenario)
+const DEFAULT_ACCURACY: &str = "2000";
 
 fn main() -> Result<(), Error> {
     dotenv().ok();
@@ -37,6 +41,12 @@ mod cmd {
         let dest = matches
             .value_of(DEST_ARG)
             .expect(&format!("'{}' must be provided", DEST_ARG));
-        bkup::update(&Path::new(source), &Path::new(dest))
+        let accuracy = matches
+            .value_of(ACCURACY_ARG)
+            .unwrap_or(DEFAULT_ACCURACY)
+            .parse::<u64>()
+            .map(|a| Duration::from_millis(a))
+            .expect("Accuracy must be a valid u64");
+        bkup::update(&Path::new(source), &Path::new(dest), accuracy)
     }
 }
