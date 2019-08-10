@@ -404,104 +404,11 @@ mod tests {
     lazy_static! {
         /// Interval used to write files with significant difference on the
         /// modification time stored in the metadata.
-        static ref SLEEP_INTERVAL: time::Duration = time::Duration::from_millis(10);
+        static ref SLEEP_INTERVAL: time::Duration = time::Duration::from_millis(1000);
     }
 
     // Empty gitignore matcher that never matches anything.
     const IGNORE: Option<&Gitignore> = None;
-
-    /// Creates a new directory in the given root path.
-    fn create_dir(root: &Path, name: &str) -> DirEntry {
-        let dir: PathBuf = [root, Path::new(name)].iter().collect();
-        fs::create_dir(&dir)
-            .expect(&format!("Cannot create directory '{:?}'", dir));
-        DirEntry::new(&dir, IGNORE)
-            .expect(&format!("Cannot create DirEntry '{:?}'", dir))
-    }
-
-    /// Writes a new empty fule in the given root path.
-    fn write_file(root: &Path, name: &str) -> FileEntry {
-        let file: PathBuf = [root, Path::new(name)].iter().collect();
-        thread::sleep(*SLEEP_INTERVAL);
-        fs::write(&file, "")
-            .expect(&format!("Cannot writes file '{:?}'", file));
-        FileEntry::new(&file)
-            .expect(&format!("Cannot create FileEntry '{:?}'", file))
-    }
-
-    /// Create the source and destination directories in a temp folder.
-    fn create_source_and_dest_dirs() -> (DirEntry, DirEntry) {
-        let temp_dir = env::temp_dir();;
-        // create source and destination directories
-        let source = Uuid::new_v4().to_simple().to_string();
-        let source = create_dir(temp_dir.as_path(), &source);
-        let dest = Uuid::new_v4().to_simple().to_string();
-        let dest = create_dir(temp_dir.as_path(), &dest);
-        (source, dest)
-    }
-
-    /// Asserts the given entry is marked as not found in the destination for
-    /// the given directory delta.
-    fn assert_entry_not_found_in_dest(
-        delta: &DirDelta,
-        entry_name: &str,
-        count: usize,
-    ) {
-        assert!(delta.diff == DirCmp::Different);
-        assert_eq!(delta.entries.len(), count);
-        let entry_delta = delta
-            .entries
-            .get(Path::new(entry_name))
-            .expect("Cannot get entry delta");
-        match entry_delta {
-            EntryDelta::NotFound { .. } => (),
-            _ => panic!("Invalid delta"),
-        }
-    }
-
-    /// Asserts that the given file is marked as found in the destination for
-    /// the given directory delta, and its time difference with the source file
-    /// is equal to the given one.
-    fn assert_delta_cmp_with_file(
-        delta: &DirDelta,
-        delta_diff: DirCmp,
-        file_name: &str,
-        file_cmp: FileCmp,
-        count: usize,
-    ) {
-        assert!(delta.diff == delta_diff);
-        assert_eq!(delta.entries.len(), count);
-        let entry_delta = delta
-            .entries
-            .get(Path::new(file_name))
-            .expect("Cannot get entry delta");
-        match entry_delta {
-            EntryDelta::File(delta) => assert!(delta.diff == file_cmp),
-            _ => panic!("Invalid delta"),
-        }
-    }
-
-    /// Asserts that the given directory is marked as found in the destination for
-    /// the given directory delta, and its time difference with the source
-    /// directory is equal to the given one.
-    fn assert_delta_cmp_with_dir(
-        delta: &DirDelta,
-        delta_diff: DirCmp,
-        dir_name: &str,
-        dir_cmp: DirCmp,
-        count: usize,
-    ) {
-        assert!(delta.diff == delta_diff);
-        assert_eq!(delta.entries.len(), count);
-        let entry_delta = delta
-            .entries
-            .get(Path::new(dir_name))
-            .expect("Cannot get entry delta");
-        match entry_delta {
-            EntryDelta::Dir(delta) => assert!(delta.diff == dir_cmp),
-            _ => panic!("Invalid delta"),
-        }
-    }
 
     #[test]
     fn test_cmp_dir() {
@@ -771,9 +678,9 @@ mod tests {
         let copy = FileEntry::new(newer.path.as_path())
             .expect("Cannot create FileEntry");
         let delta = older.cmp(&copy).expect("Cannot compare entries");
-        assert_eq!(delta.diff, FileCmp::Older);
+        assert_eq!(delta.diff, FileCmp::Same);
         let delta = copy.cmp(&older).expect("Cannot compare entries");
-        assert_eq!(delta.diff, FileCmp::Newer);
+        assert_eq!(delta.diff, FileCmp::Same);
     }
 
     #[test]
@@ -803,5 +710,98 @@ mod tests {
         let delta =
             source.cmp(&dest).expect("Cannot compare directory entries");
         assert_entry_not_found_in_dest(&delta, ignore_filename, 1);
+    }
+
+    /// Creates a new directory in the given root path.
+    fn create_dir(root: &Path, name: &str) -> DirEntry {
+        let dir: PathBuf = [root, Path::new(name)].iter().collect();
+        fs::create_dir(&dir)
+            .expect(&format!("Cannot create directory '{:?}'", dir));
+        DirEntry::new(&dir, IGNORE)
+            .expect(&format!("Cannot create DirEntry '{:?}'", dir))
+    }
+
+    /// Writes a new empty fule in the given root path.
+    fn write_file(root: &Path, name: &str) -> FileEntry {
+        let file: PathBuf = [root, Path::new(name)].iter().collect();
+        thread::sleep(*SLEEP_INTERVAL);
+        fs::write(&file, "")
+            .expect(&format!("Cannot writes file '{:?}'", file));
+        FileEntry::new(&file)
+            .expect(&format!("Cannot create FileEntry '{:?}'", file))
+    }
+
+    /// Create the source and destination directories in a temp folder.
+    fn create_source_and_dest_dirs() -> (DirEntry, DirEntry) {
+        let temp_dir = env::temp_dir();;
+        // create source and destination directories
+        let source = Uuid::new_v4().to_simple().to_string();
+        let source = create_dir(temp_dir.as_path(), &source);
+        let dest = Uuid::new_v4().to_simple().to_string();
+        let dest = create_dir(temp_dir.as_path(), &dest);
+        (source, dest)
+    }
+
+    /// Asserts the given entry is marked as not found in the destination for
+    /// the given directory delta.
+    fn assert_entry_not_found_in_dest(
+        delta: &DirDelta,
+        entry_name: &str,
+        count: usize,
+    ) {
+        assert!(delta.diff == DirCmp::Different);
+        assert_eq!(delta.entries.len(), count);
+        let entry_delta = delta
+            .entries
+            .get(Path::new(entry_name))
+            .expect("Cannot get entry delta");
+        match entry_delta {
+            EntryDelta::NotFound { .. } => (),
+            _ => panic!("Invalid delta"),
+        }
+    }
+
+    /// Asserts that the given file is marked as found in the destination for
+    /// the given directory delta, and its time difference with the source file
+    /// is equal to the given one.
+    fn assert_delta_cmp_with_file(
+        delta: &DirDelta,
+        delta_diff: DirCmp,
+        file_name: &str,
+        file_cmp: FileCmp,
+        count: usize,
+    ) {
+        assert!(delta.diff == delta_diff);
+        assert_eq!(delta.entries.len(), count);
+        let entry_delta = delta
+            .entries
+            .get(Path::new(file_name))
+            .expect("Cannot get entry delta");
+        match entry_delta {
+            EntryDelta::File(delta) => assert!(delta.diff == file_cmp),
+            _ => panic!("Invalid delta"),
+        }
+    }
+
+    /// Asserts that the given directory is marked as found in the destination for
+    /// the given directory delta, and its time difference with the source
+    /// directory is equal to the given one.
+    fn assert_delta_cmp_with_dir(
+        delta: &DirDelta,
+        delta_diff: DirCmp,
+        dir_name: &str,
+        dir_cmp: DirCmp,
+        count: usize,
+    ) {
+        assert!(delta.diff == delta_diff);
+        assert_eq!(delta.entries.len(), count);
+        let entry_delta = delta
+            .entries
+            .get(Path::new(dir_name))
+            .expect("Cannot get entry delta");
+        match entry_delta {
+            EntryDelta::Dir(delta) => assert!(delta.diff == dir_cmp),
+            _ => panic!("Invalid delta"),
+        }
     }
 }
