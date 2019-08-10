@@ -256,7 +256,7 @@ impl FileEntry {
         info!("Copying file '{:?}' to '{:?}'", self.path, dest);
         use std::process::Command;
         let succeeded = Command::new("cp")
-            .arg("--preserve=timestamps")
+            .arg("-p")
             .arg(self.path.to_str().unwrap())
             .arg(dest.to_str().unwrap())
             .status()?
