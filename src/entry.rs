@@ -82,7 +82,7 @@ impl DirEntry {
 
     /// Copies self into the given destination.
     fn copy(&self, dest: &Path) -> Result<(), Error> {
-        info!("Copy directory '{:?}' to '{:?}'", self.path, dest);
+        info!("Copying directory '{:?}' to '{:?}'", self.path, dest);
         // create destination directory
         if !dest.is_dir() {
             fs::create_dir(dest)?;
@@ -250,8 +250,24 @@ impl FileEntry {
 
     /// Copies self into the given destination.
     pub fn copy(&self, dest: &Path) -> Result<(), Error> {
-        info!("Copy file '{:?}' to '{:?}'", self.path, dest);
-        fs::copy(&self.path, dest)?;
+        #[cfg(not(unix))]
+        compile_error!("Only Unix-like OS are supported");
+
+        info!("Copying file '{:?}' to '{:?}'", self.path, dest);
+        use std::process::Command;
+        let succeeded = Command::new("cp")
+            .arg("--preserve=timestamps")
+            .arg(self.path.to_str().unwrap())
+            .arg(dest.to_str().unwrap())
+            .status()?
+            .success();
+        if !succeeded {
+            return Err(format_err!(
+                "Cannot copy '{:?}' to '{:?}'",
+                self.path,
+                dest
+            ));
+        }
         Ok(())
     }
 
@@ -789,7 +805,7 @@ mod tests {
     /// Writes a new empty fule in the given root path.
     fn write_file(root: &Path, name: &str) -> FileEntry {
         let file: PathBuf = [root, Path::new(name)].iter().collect();
-        thread::sleep(*ACCURACY);
+        thread::sleep(*ACCURACY + Duration::from_millis(10));
         fs::write(&file, "")
             .expect(&format!("Cannot writes file '{:?}'", file));
         FileEntry::new(&file)
