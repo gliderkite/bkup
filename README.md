@@ -32,9 +32,11 @@ SUBCOMMANDS:
     update    Update the destination folder according to its delta with the source folder
 ```
 
-If you wish to ignore specific files or folder, you can set the `--ignore` flag
-of the `update` subcommand. If this flag is set every directory (both in source
-and destination) will be ignored (as if it didn't exist).
+If you wish to ignore specific files or folders, you can set the `--ignore` flag
+of the `update` subcommand. If this flag is set, every directory (both in source
+and destination) will be parsed according to its `.gitignore` file (if any), and
+every file and folder that matches the `.gitignore` entries will be ignored (as
+if they didn't exist).
 
 ```
 cargo run --release -- update -s <source> -d <destination> --ignore
@@ -43,10 +45,10 @@ cargo run --release -- update -s <source> -d <destination> --ignore
 Please note that this may lead to unexpected results when the `.gitignore` file
 in the source directory is not equal to the one in the destination directory.
 For example, consider the scenario where the `.gitignore` file in the destination
-directory contains an entry that does not exist in the source one. In this case
-the entry will be copied from source to destination independently if it is
-actually newer. The idea is that this entry has not to be ignored anymore for the
-source, therefore it will be replicated in the destination.
+directory contains an entry that does not exist in the source `.gitignore` file.
+In this case the entry will be copied from source to destination independently
+if it is actually newer. The idea is that this entry should not be ignored
+anymore for the source, therefore it will be replicated in the destination.
 
 
 
