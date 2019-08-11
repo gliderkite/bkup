@@ -74,16 +74,13 @@ impl DirEntry {
             entry.visit(ignore)?;
             Ok(entry)
         } else {
-            Err(format_err!(
-                "The given directory '{:?}' does not exist",
-                path
-            ))
+            Err(format_err!("The given directory {:?} does not exist", path))
         }
     }
 
     /// Copies self into the given destination.
     fn copy(&self, dest: &Path) -> Result<(), Error> {
-        info!("Copying directory '{:?}' to '{:?}'", self.path, dest);
+        info!("Copying directory {:?} to {:?}", self.path, dest);
         // create destination directory
         if !dest.is_dir() {
             fs::create_dir(dest)?;
@@ -127,7 +124,7 @@ impl DirEntry {
                     path: dest_path,
                 })
             };
-            debug!("Difference for '{:?}': {:?}", e1, cmp_res);
+            debug!("Difference for {:?}: {:?}", e1, cmp_res);
             let cmp_res = cmp_res?;
 
             // check if all the entries are the same by finding the first difference
@@ -161,23 +158,24 @@ impl DirEntry {
             // check if this path must be ignored
             if let Some(ignore) = ignore {
                 if ignore.matched(&path, is_dir).is_ignore() {
-                    info!("Ignoring '{:?}'", path);
+                    info!("Ignoring {:?}", path);
                     continue;
                 }
             }
 
             // get the entry filename if any
-            let file_name = path.file_name().map(|s| PathBuf::from(s)).ok_or(
-                format_err!("Cannot get the filename for '{:?}'", path),
-            )?;
+            let file_name = path
+                .file_name()
+                .map(|s| PathBuf::from(s))
+                .ok_or(format_err!("Cannot get the filename for {:?}", path))?;
 
             if is_dir {
-                debug!("New sub-directory: '{:?}'", path);
+                debug!("New sub-directory: {:?}", path);
                 // dfs with recursion
                 let dir = Entry::directory(&path, ignore)?;
                 self.entries.insert(file_name, dir);
             } else if path.is_file() {
-                debug!("New file: '{:?}'", path);
+                debug!("New file: {:?}", path);
                 self.entries
                     .insert(file_name, Entry::File(FileEntry::new(&path)?));
             }
@@ -245,7 +243,7 @@ impl FileEntry {
                 path: path.to_path_buf(),
             })
         } else {
-            Err(format_err!("The given file '{:?}' does not exist", path))
+            Err(format_err!("The given file {:?} does not exist", path))
         }
     }
 
@@ -253,7 +251,7 @@ impl FileEntry {
     pub fn copy(&self, dest: &Path) -> Result<(), Error> {
         #[cfg(not(unix))]
         compile_error!("Only Unix-like OS are supported");
-        info!("Copying file '{:?}' to '{:?}'", self.path, dest);
+        info!("Copying file {:?} to {:?}", self.path, dest);
         let succeeded = Command::new("cp")
             .arg("-p")
             .arg(path_to_str(self.path())?)
@@ -262,7 +260,7 @@ impl FileEntry {
             .success();
         if !succeeded {
             return Err(format_err!(
-                "Cannot copy '{:?}' to '{:?}'",
+                "Cannot copy {:?} to {:?}",
                 self.path,
                 dest
             ));
@@ -340,7 +338,7 @@ impl<'a> EntryDelta<'a> {
                 }
             }
             EntryDelta::NotFound { entry, path } => {
-                debug!("Not found: {:?} in '{:?}'", entry, path);
+                debug!("Not found: {:?} in {:?}", entry, path);
                 entry.copy(path)?;
             }
         };
@@ -450,7 +448,7 @@ fn file_cmp_modified(
 /// Gets a &str from a Path, returning an error in case of failure.
 fn path_to_str(path: &Path) -> Result<&str, Error> {
     path.to_str()
-        .ok_or(format_err!("Cannot get str for path '{:?}'", path))
+        .ok_or(format_err!("Cannot get str for path {:?}", path))
         .map_err(Error::from)
 }
 
@@ -803,19 +801,18 @@ mod tests {
     fn create_dir(root: &Path, name: &str) -> DirEntry {
         let dir: PathBuf = [root, Path::new(name)].iter().collect();
         fs::create_dir(&dir)
-            .expect(&format!("Cannot create directory '{:?}'", dir));
+            .expect(&format!("Cannot create directory {:?}", dir));
         DirEntry::new(&dir, IGNORE)
-            .expect(&format!("Cannot create DirEntry '{:?}'", dir))
+            .expect(&format!("Cannot create DirEntry {:?}", dir))
     }
 
     /// Writes a new empty fule in the given root path.
     fn write_file(root: &Path, name: &str) -> FileEntry {
         let file: PathBuf = [root, Path::new(name)].iter().collect();
         thread::sleep(*ACCURACY + Duration::from_millis(10));
-        fs::write(&file, "")
-            .expect(&format!("Cannot writes file '{:?}'", file));
+        fs::write(&file, "").expect(&format!("Cannot writes file {:?}", file));
         FileEntry::new(&file)
-            .expect(&format!("Cannot create FileEntry '{:?}'", file))
+            .expect(&format!("Cannot create FileEntry {:?}", file))
     }
 
     /// Create the source and destination directories in a temp folder.

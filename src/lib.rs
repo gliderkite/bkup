@@ -21,6 +21,10 @@ pub fn update(
     dest: &Path,
     accuracy: Duration,
 ) -> Result<(), Error> {
+    info!(
+        "Updating directory {:?} with content of {:?} ({:?} accuracy)",
+        dest, source, accuracy
+    );
     let (ignore, _) = Gitignore::new(".bkignore");
 
     info!("Exploring directory {:?}", source);
