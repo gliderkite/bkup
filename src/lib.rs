@@ -34,8 +34,11 @@ pub fn update(
     info!("Computing difference");
     let delta = source.cmp(&dest, &accuracy)?;
     debug!("Delta: {:?}", delta);
-    info!("Updating destination");
-    delta.clear()?;
+    if let Some(delta) = delta {
+        info!("Updating destination");
+        delta.clear()?;
+    }
+
     info!("Update completed");
     Ok(())
 }
