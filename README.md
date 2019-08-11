@@ -17,19 +17,23 @@ that does not exist or it's older than the corresponding file in the source dire
 cargo run --release -- update -s <source> -d <destination>
 ```
 
-For a list of possible options run with `--help`:
+At the moment, only the `update` subcommand exist. For a list of possible options
+run with `--help`:
 
 ```
 USAGE:
-    bkup [SUBCOMMAND]
+    bkup update [FLAGS] [OPTIONS] --destination <DESTINATION_PATH> --source <SOURCE_PATH>
 
 FLAGS:
     -h, --help       Prints help information
+    -i, --ignore     When set parse the .gitignore file of the source directories
     -V, --version    Prints version information
 
-SUBCOMMANDS:
-    help      Prints this message or the help of the given subcommand(s)
-    update    Update the destination folder according to its delta with the source folder
+OPTIONS:
+    -a, --accuracy <ACCURACY_MS>            Sets the accuracy in ms for a source file to be considered newer than its
+                                            destination
+    -d, --destination <DESTINATION_PATH>    Sets the path of the destination folder to update
+    -s, --source <SOURCE_PATH>              Sets the path of the source folder
 ```
 
 If you wish to ignore specific files or folders, you can set the `--ignore` flag
