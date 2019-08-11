@@ -5,6 +5,7 @@ use std::collections::HashMap;
 use std::fmt;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::process::Command;
 use std::time::Duration;
 
 type EntryDeltaMap<'a> = HashMap<&'a Path, EntryDelta<'a>>;
@@ -252,13 +253,11 @@ impl FileEntry {
     pub fn copy(&self, dest: &Path) -> Result<(), Error> {
         #[cfg(not(unix))]
         compile_error!("Only Unix-like OS are supported");
-
         info!("Copying file '{:?}' to '{:?}'", self.path, dest);
-        use std::process::Command;
         let succeeded = Command::new("cp")
             .arg("-p")
-            .arg(self.path.to_str().unwrap())
-            .arg(dest.to_str().unwrap())
+            .arg(path_to_str(self.path())?)
+            .arg(path_to_str(dest)?)
             .status()?
             .success();
         if !succeeded {
@@ -297,7 +296,7 @@ impl FileEntry {
                 let t2 = fs::metadata(path2)?
                     .modified()?
                     .duration_since(UNIX_EPOCH)?;
-                let diff = FileEntry::cmp_modified(t1, t2, accuracy);
+                let diff = file_cmp_modified(t1, t2, accuracy);
                 Ok(FileDelta::new(self, other, diff))
             }
             _ => Err(format_err!(
@@ -305,32 +304,6 @@ impl FileEntry {
                 path1,
                 path2
             )),
-        }
-    }
-
-    /// Compares the source and destination modified times taking into account
-    /// the given accuracy.
-    fn cmp_modified(
-        source: Duration,
-        dest: Duration,
-        accuracy: &Duration,
-    ) -> FileCmp {
-        if source > dest {
-            // source may be newer
-            if (source - *accuracy) > dest {
-                FileCmp::Newer
-            } else {
-                FileCmp::Same
-            }
-        } else if dest > source {
-            // source may be older (dest may be newer)
-            if (dest - *accuracy) > source {
-                FileCmp::Older
-            } else {
-                FileCmp::Same
-            }
-        } else {
-            FileCmp::Same
         }
     }
 
@@ -446,6 +419,39 @@ impl fmt::Display for Entry {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{}", self.path().display())
     }
+}
+
+/// Compares the source and destination modified times taking into account
+/// the given accuracy.
+fn file_cmp_modified(
+    source: Duration,
+    dest: Duration,
+    accuracy: &Duration,
+) -> FileCmp {
+    if source > dest {
+        // source may be newer
+        if (source - *accuracy) > dest {
+            FileCmp::Newer
+        } else {
+            FileCmp::Same
+        }
+    } else if dest > source {
+        // source may be older (dest may be newer)
+        if (dest - *accuracy) > source {
+            FileCmp::Older
+        } else {
+            FileCmp::Same
+        }
+    } else {
+        FileCmp::Same
+    }
+}
+
+/// Gets a &str from a Path, returning an error in case of failure.
+fn path_to_str(path: &Path) -> Result<&str, Error> {
+    path.to_str()
+        .ok_or(format_err!("Cannot get str for path '{:?}'", path))
+        .map_err(Error::from)
 }
 
 #[cfg(test)]
