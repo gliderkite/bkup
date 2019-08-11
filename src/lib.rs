@@ -9,7 +9,6 @@ mod entry;
 
 use entry::Entry;
 use failure::Error;
-use ignore::gitignore::Gitignore;
 use log::*;
 use std::path::Path;
 use std::time::Duration;
@@ -20,17 +19,17 @@ pub fn update(
     source: &Path,
     dest: &Path,
     accuracy: Duration,
+    ignore: bool,
 ) -> Result<(), Error> {
     info!(
-        "Updating directory {:?} with content of {:?} ({:?} accuracy)",
-        dest, source, accuracy
+        "Updating directory {:?} with content of {:?} ({:?} accuracy - ignore: {})",
+        dest, source, accuracy, ignore
     );
-    let (ignore, _) = Gitignore::new(".bkignore");
 
     info!("Exploring directory {:?}", source);
-    let source = Entry::directory(source, Some(&ignore))?;
+    let source = Entry::directory(source, ignore)?;
     info!("Exploring directory {:?}", dest);
-    let dest = Entry::directory(dest, Some(&ignore))?;
+    let dest = Entry::directory(dest, ignore)?;
 
     info!("Computing difference");
     let delta = source.cmp(&dest, &accuracy)?;

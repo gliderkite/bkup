@@ -26,3 +26,7 @@ subcommands:
               value_name: ACCURACY_MS
               help: Sets the accuracy in ms for a source file to be considered newer than its destination
               takes_value: true
+          - ignore:
+              short: i
+              long: ignore
+              help: When set parse the .gitignore file of the source directories

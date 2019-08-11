@@ -32,9 +32,22 @@ SUBCOMMANDS:
     update    Update the destination folder according to its delta with the source folder
 ```
 
-If you wish to ignore specific files or folder, it is possible to define a
-*`.gitignore`-like* file in the same path of the executable which name must be
-`.bkignore`.
+If you wish to ignore specific files or folder, you can set the `--ignore` flag
+of the `update` subcommand. If this flag is set every directory (both in source
+and destination) will be ignored (as if it didn't exist).
+
+```
+cargo run --release -- update -s <source> -d <destination> --ignore
+```
+
+Please note that this may lead to unexpected results when the `.gitignore` file
+in the source directory is not equal to the one in the destination directory.
+For example, consider the scenario where the `.gitignore` file in the destination
+directory contains an entry that does not exist in the source one. In this case
+the entry will be copied from source to destination independently if it is
+actually newer. The idea is that this entry has not to be ignored anymore for the
+source, therefore it will be replicated in the destination.
+
 
 
 ## Roadmap
@@ -53,6 +66,5 @@ If you wish to ignore specific files or folder, it is possible to define a
     - [ ] Keep alive background process and backup every N seconds.
     - [ ] Read JSON configuration with multiple sources and destinations.
     - [ ] Option to backup destination into source (*round trip*).
-    - [X] Ignore files and folder to backup with global *`.gitignore`-like* file.
-        - [ ] Pass `.ignore` file path via CLI option.
+    - [X] Ignore files and folder to backup according to  `.gitignore` files.
 - [ ] Create 2 binaries: export lib public functionalities + executable

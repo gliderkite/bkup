@@ -65,13 +65,23 @@ pub struct DirEntry {
 
 impl DirEntry {
     /// Creates a new directory entry by visiting it.
-    fn new(path: &Path, ignore: Option<&Gitignore>) -> Result<DirEntry, Error> {
+    /// If the `ignore` flags is set and a ".gitignore" file exists in the
+    /// directory, it will be parsed to ignore all the specified files and folders.
+    fn new(path: &Path, ignore: bool) -> Result<DirEntry, Error> {
         if path.is_dir() {
             let mut entry = DirEntry {
                 path: path.to_path_buf(),
                 entries: HashMap::new(),
             };
-            entry.visit(ignore)?;
+            let ignore = if ignore {
+                let gitignore: PathBuf =
+                    [path, Path::new(".gitignore")].iter().collect();
+                let (ignore, _) = Gitignore::new(gitignore);
+                Some(ignore)
+            } else {
+                None
+            };
+            entry.visit(ignore.as_ref())?;
             Ok(entry)
         } else {
             Err(format_err!("The given directory {:?} does not exist", path))
@@ -171,8 +181,8 @@ impl DirEntry {
 
             if is_dir {
                 debug!("New sub-directory: {:?}", path);
-                // dfs with recursion
-                let dir = Entry::directory(&path, ignore)?;
+                // dfs with recursion, carry ignore settings into sub-directory
+                let dir = Entry::directory(&path, ignore.is_some())?;
                 self.entries.insert(file_name, dir);
             } else if path.is_file() {
                 debug!("New file: {:?}", path);
@@ -357,10 +367,7 @@ pub enum Entry {
 impl Entry {
     /// Creates a new entry that represents a directory and populates its
     /// entries by visiting it.
-    pub fn directory(
-        path: &Path,
-        ignore: Option<&Gitignore>,
-    ) -> Result<Entry, Error> {
+    pub fn directory(path: &Path, ignore: bool) -> Result<Entry, Error> {
         Ok(Entry::Dir(DirEntry::new(path, ignore)?))
     }
 
@@ -772,10 +779,10 @@ mod tests {
         let (mut source, dest) = create_source_and_dest_dirs();
         let source_path = source.path().to_path_buf();
 
-        let ignore_filename = ".bkignore";
+        let ignore_filename = ".gitignore";
         let filename_to_ignore = "ignore.txt";
 
-        // create .bkignore file in source directory
+        // create .gitignore file in source directory
         let ignore_path: PathBuf =
             [source_path.as_path(), Path::new(ignore_filename)]
                 .iter()
@@ -787,7 +794,7 @@ mod tests {
         write_file(&source_path, filename_to_ignore);
 
         // file1 exists only on the source but since it has to be ignored the
-        // only difference must be the .bkignore file itself
+        // only difference must be the .gitignore file itself
         source
             .visit(Some(&ignore))
             .expect("Cannot visit source directory");
@@ -802,7 +809,8 @@ mod tests {
         let dir: PathBuf = [root, Path::new(name)].iter().collect();
         fs::create_dir(&dir)
             .expect(&format!("Cannot create directory {:?}", dir));
-        DirEntry::new(&dir, IGNORE)
+        let ignore = false;
+        DirEntry::new(&dir, ignore)
             .expect(&format!("Cannot create DirEntry {:?}", dir))
     }
 

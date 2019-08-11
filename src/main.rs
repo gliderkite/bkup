@@ -12,6 +12,7 @@ const UPDATE_CMD: &str = "update";
 // CLI commands args
 const ACCURACY_ARG: &str = "accuracy";
 const DEST_ARG: &str = "dest";
+const IGNORE_ARG: &str = "ignore";
 const SOURCE_ARG: &str = "source";
 
 // Default accuracy in ms (2s for FAT filesystem as worst case scenario)
@@ -47,6 +48,7 @@ mod cmd {
             .parse::<u64>()
             .map(|a| Duration::from_millis(a))
             .expect("Accuracy must be a valid u64");
-        bkup::update(&Path::new(source), &Path::new(dest), accuracy)
+        let ignore = matches.is_present(IGNORE_ARG);
+        bkup::update(&Path::new(source), &Path::new(dest), accuracy, ignore)
     }
 }
