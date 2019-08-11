@@ -5,7 +5,6 @@ use std::collections::HashMap;
 use std::fmt;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::Command;
 use std::time::Duration;
 
 type EntryDeltaMap<'a> = HashMap<&'a Path, EntryDelta<'a>>;
@@ -259,22 +258,8 @@ impl FileEntry {
 
     /// Copies self into the given destination.
     pub fn copy(&self, dest: &Path) -> Result<(), Error> {
-        #[cfg(not(unix))]
-        compile_error!("Only Unix-like OS are supported");
         info!("Copying file {:?} to {:?}", self.path, dest);
-        let succeeded = Command::new("cp")
-            .arg("-p")
-            .arg(path_to_str(self.path())?)
-            .arg(path_to_str(dest)?)
-            .status()?
-            .success();
-        if !succeeded {
-            return Err(format_err!(
-                "Cannot copy {:?} to {:?}",
-                self.path,
-                dest
-            ));
-        }
+        fs::copy(self.path(), dest)?;
         Ok(())
     }
 
@@ -426,8 +411,8 @@ impl fmt::Display for Entry {
     }
 }
 
-/// Compares the source and destination modified times taking into account
-/// the given accuracy.
+/// Compares the source and destination modified times taking into account the
+/// given accuracy.
 fn file_cmp_modified(
     source: Duration,
     dest: Duration,
@@ -450,13 +435,6 @@ fn file_cmp_modified(
     } else {
         FileCmp::Same
     }
-}
-
-/// Gets a &str from a Path, returning an error in case of failure.
-fn path_to_str(path: &Path) -> Result<&str, Error> {
-    path.to_str()
-        .ok_or(format_err!("Cannot get str for path {:?}", path))
-        .map_err(Error::from)
 }
 
 #[cfg(test)]
@@ -768,10 +746,10 @@ mod tests {
             .expect("Cannot create FileEntry");
         let delta =
             older.cmp(&copy, &ACCURACY).expect("Cannot compare entries");
-        assert_eq!(delta.diff, FileCmp::Same);
+        assert_ne!(delta.diff, FileCmp::Newer);
         let delta =
             copy.cmp(&older, &ACCURACY).expect("Cannot compare entries");
-        assert_eq!(delta.diff, FileCmp::Same);
+        assert_ne!(delta.diff, FileCmp::Older);
     }
 
     #[test]
