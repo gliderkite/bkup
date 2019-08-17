@@ -1,6 +1,6 @@
 # bkup
 
-**[WIP]** A simple utility to backup files.
+A simple, fast and correct CLI utility used to backup files.
 
 [![Build Status](https://travis-ci.com/gliderkite/bkup.svg?token=KzGLQfTbGDZSnqr7k9KT&branch=master)](https://travis-ci.com/gliderkite/bkup)
 
@@ -51,8 +51,7 @@ in the source directory is not equal to the one in the destination directory.
 For example, consider the scenario where the `.gitignore` file in the destination
 directory contains an entry that does not exist in the source `.gitignore` file.
 In this case the entry will be copied from source to destination independently
-if it is actually newer. The idea is that this entry should not be ignored
-anymore for the source, therefore it will be replicated in the destination.
+if it is actually newer.
 
 
 
