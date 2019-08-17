@@ -72,4 +72,3 @@ if it is actually newer.
     - [ ] Read JSON configuration with multiple sources and destinations.
     - [ ] Option to backup destination into source (*round trip*).
     - [X] Ignore files and folder to backup according to  `.gitignore` files.
-- [ ] Create 2 binaries: export lib public functionalities + executable
