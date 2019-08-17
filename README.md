@@ -9,9 +9,10 @@ A simple, fast and correct CLI utility used to backup files.
 
 Use cargo to build and run.
 
-The following command will compare the *source*
-directory with the *destination* directory, and update each file in the destination
-that does not exist or it's older than the corresponding file in the source directory.
+The following command will compare the *source* directory with the *destination*
+directory, and copy each file of the source directory into the destination
+directory if it doesn't exist, or it's newer than the corresponding file in the
+destination directory.
 
 ```
 RUST_LOG=info cargo run --release -- update -s <source> -d <destination>
