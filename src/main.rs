@@ -4,7 +4,7 @@ extern crate clap;
 use clap::{App, ArgMatches};
 use dotenv::dotenv;
 use failure::{err_msg, Error};
-use std::path::Path;
+use std::path::PathBuf;
 use std::time::Duration;
 
 /// CLI commands
@@ -49,6 +49,11 @@ mod cmd {
             .map(|a| Duration::from_millis(a))
             .expect("Accuracy must be a valid u64");
         let ignore = matches.is_present(IGNORE_ARG);
-        bkup::update(&Path::new(source), &Path::new(dest), accuracy, ignore)
+        bkup::update(
+            PathBuf::from(source),
+            PathBuf::from(dest),
+            accuracy,
+            ignore,
+        )
     }
 }

@@ -10,14 +10,15 @@ mod entry;
 use entry::Entry;
 use failure::Error;
 use log::*;
-use std::path::Path;
+use std::path::PathBuf;
+use std::thread;
 use std::time::Duration;
 
 /// Updates the destination directory according to its delta with the source
 /// directory.
 pub fn update(
-    source: &Path,
-    dest: &Path,
+    source: PathBuf,
+    dest: PathBuf,
     accuracy: Duration,
     ignore: bool,
 ) -> Result<(), Error> {
@@ -26,14 +27,23 @@ pub fn update(
         dest, source, accuracy, ignore
     );
 
-    info!("Exploring directory {:?}", source);
-    let source = Entry::directory(source, ignore)?;
-    info!("Exploring directory {:?}", dest);
-    let dest = Entry::directory(dest, ignore)?;
+    // spawn thread used to visit the destination directory
+    let handle = thread::spawn(move || {
+        info!("Exploring destination directory {:?}", dest);
+        Entry::directory(&dest, ignore)
+    });
+
+    info!("Exploring source directory {:?}", source);
+    let source = Entry::directory(&source, ignore)?;
+
+    let dest = handle
+        .join()
+        .expect("Couldn't join on the destination visit thread")?;
 
     info!("Computing difference");
     let delta = source.cmp(&dest, &accuracy)?;
     debug!("Delta: {:?}", delta);
+
     if let Some(delta) = delta {
         info!("Updating destination");
         delta.clear()?;

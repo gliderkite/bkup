@@ -14,11 +14,11 @@ directory with the *destination* directory, and update each file in the destinat
 that does not exist or it's older than the corresponding file in the source directory.
 
 ```
-cargo run --release -- update -s <source> -d <destination>
+RUST_LOG=info cargo run --release -- update -s <source> -d <destination>
 ```
 
-At the moment, only the `update` subcommand exist. For a list of possible options
-run with `--help`:
+At the moment, only the `update` subcommand is available. For a list of possible
+options run with `--help`:
 
 ```
 USAGE:
@@ -43,7 +43,7 @@ every file and folder that matches the `.gitignore` entries will be ignored (as
 if they didn't exist).
 
 ```
-cargo run --release -- update -s <source> -d <destination> --ignore
+RUST_LOG=info cargo run --release -- update -s <source> -d <destination> --ignore
 ```
 
 Please note that this may lead to unexpected results when the `.gitignore` file
@@ -63,8 +63,8 @@ anymore for the source, therefore it will be replicated in the destination.
     - [ ] Parse YAML/JSON to recreate filesystem structure for better tests.
 - [X] Integrate with CI pipeline.
 - Parallel/Concurrent exploration (and backup):
-    - [ ] Parallel: threads for each exploration.
-    - [ ] Concurrent: async runtime (tokio) with pool of threads and reactor.
+    - [X] Parallel: thread per directory visit.
+    - [ ] Concurrent: async runtime (tokio) (blocked on https://github.com/tokio-rs/tokio/issues/588).
 - Configuration:
     - [X] YAML CLI clap commands.
     - [X] Add accuracy parameter to take into account different filesystems.
