@@ -62,8 +62,8 @@ if it is actually newer.
     - [ ] Parse YAML/JSON to recreate filesystem structure for better tests.
 - [X] Integrate with CI pipeline.
 - [ ] Parallel/Concurrent exploration (and backup):
-    - [X] Parallel: thread per directory visit.
-    - [ ] Concurrent: async runtime (tokio) (blocked on https://github.com/tokio-rs/tokio/issues/588).
+    - [X] Multithreaded: thread per directory visit.
+    - [ ] Asynchronous: async runtime (tokio) (blocked on https://github.com/tokio-rs/tokio/issues/588).
 - [ ] Configuration:
     - [X] YAML CLI clap commands.
     - [X] Add accuracy parameter to take into account different filesystems.
