@@ -62,10 +62,10 @@ anymore for the source, therefore it will be replicated in the destination.
 - [X] Unit and integration Tests for main functionalities.
     - [ ] Parse YAML/JSON to recreate filesystem structure for better tests.
 - [X] Integrate with CI pipeline.
-- Parallel/Concurrent exploration (and backup):
+- [ ] Parallel/Concurrent exploration (and backup):
     - [X] Parallel: thread per directory visit.
     - [ ] Concurrent: async runtime (tokio) (blocked on https://github.com/tokio-rs/tokio/issues/588).
-- Configuration:
+- [ ] Configuration:
     - [X] YAML CLI clap commands.
     - [X] Add accuracy parameter to take into account different filesystems.
     - [ ] *Daemonize* process to run in background.
