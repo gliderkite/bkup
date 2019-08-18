@@ -101,7 +101,7 @@ impl DirEntry {
         other: &'a DirEntry,
         accuracy: &'a Duration,
     ) -> Result<Option<DirDelta<'a>>, Error> {
-        let mut entries = HashMap::with_capacity(self.entries.len());
+        let mut entries = HashMap::new();
         // compare each entry of the first directory with the content of
         // the second directory
         for (name, e1) in &self.entries {
