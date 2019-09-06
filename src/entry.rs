@@ -231,9 +231,7 @@ impl FileEntry {
     fn new<P: Into<PathBuf>>(path: P) -> Result<FileEntry, Error> {
         let path = path.into();
         if path.is_file() {
-            Ok(FileEntry {
-                path,
-            })
+            Ok(FileEntry { path })
         } else {
             Err(format_err!("The given file {:?} does not exist", path))
         }
@@ -365,7 +363,10 @@ pub enum Entry {
 impl Entry {
     /// Creates a new entry that represents a directory and populates its
     /// entries by visiting it.
-    pub fn directory<P: Into<PathBuf>>(path: P, ignore: bool) -> Result<Entry, Error> {
+    pub fn directory<P: Into<PathBuf>>(
+        path: P,
+        ignore: bool,
+    ) -> Result<Entry, Error> {
         Ok(Entry::Dir(DirEntry::new(path, ignore)?))
     }
 
