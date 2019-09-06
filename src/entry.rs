@@ -51,15 +51,16 @@ impl DirEntry {
     /// Creates a new directory entry by visiting it.
     /// If the `ignore` flags is set and a ".gitignore" file exists in the
     /// directory, it will be parsed to ignore all the specified files and folders.
-    fn new(path: &Path, ignore: bool) -> Result<DirEntry, Error> {
+    fn new<P: Into<PathBuf>>(path: P, ignore: bool) -> Result<DirEntry, Error> {
+        let path = path.into();
         if path.is_dir() {
             let mut entry = DirEntry {
-                path: path.to_path_buf(),
+                path,
                 entries: HashMap::new(),
             };
             let ignore = if ignore {
                 let gitignore: PathBuf =
-                    [path, Path::new(".gitignore")].iter().collect();
+                    [&entry.path, Path::new(".gitignore")].iter().collect();
                 let (ignore, _) = Gitignore::new(gitignore);
                 Some(ignore)
             } else {
@@ -227,10 +228,11 @@ pub struct FileEntry {
 
 impl FileEntry {
     /// Creates a new file entry.
-    fn new(path: &Path) -> Result<FileEntry, Error> {
+    fn new<P: Into<PathBuf>>(path: P) -> Result<FileEntry, Error> {
+        let path = path.into();
         if path.is_file() {
             Ok(FileEntry {
-                path: path.to_path_buf(),
+                path,
             })
         } else {
             Err(format_err!("The given file {:?} does not exist", path))
@@ -363,7 +365,7 @@ pub enum Entry {
 impl Entry {
     /// Creates a new entry that represents a directory and populates its
     /// entries by visiting it.
-    pub fn directory(path: &Path, ignore: bool) -> Result<Entry, Error> {
+    pub fn directory<P: Into<PathBuf>>(path: P, ignore: bool) -> Result<Entry, Error> {
         Ok(Entry::Dir(DirEntry::new(path, ignore)?))
     }
 
