@@ -4,6 +4,7 @@ extern crate clap;
 use clap::{App, ArgMatches};
 use dotenv::dotenv;
 use failure::{err_msg, Error};
+use std::env;
 use std::path::PathBuf;
 use std::time::Duration;
 
@@ -19,6 +20,11 @@ const SOURCE_ARG: &str = "source";
 const DEFAULT_ACCURACY: &str = "2000";
 
 fn main() -> Result<(), Error> {
+    // set default value for logger priority to INFO if not set
+    if let Err(_) = env::var("RUST_LOG") {
+        env::set_var("RUST_LOG", "bkup=info");
+    }
+
     dotenv().ok();
     env_logger::init();
 
