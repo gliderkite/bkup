@@ -10,9 +10,7 @@ mod entry;
 use entry::Entry;
 use failure::Error;
 use log::*;
-use std::path::PathBuf;
-use std::thread;
-use std::time::Duration;
+use std::{path::PathBuf, thread, time::Duration};
 
 /// Updates the destination directory according to its delta with the source
 /// directory.

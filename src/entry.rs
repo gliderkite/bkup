@@ -1,11 +1,13 @@
 use failure::{err_msg, Error};
 use ignore::gitignore::Gitignore;
 use log::*;
-use std::collections::HashMap;
-use std::fmt;
-use std::fs;
-use std::path::{Path, PathBuf};
-use std::time::Duration;
+use std::{
+    cmp::Ordering,
+    collections::HashMap,
+    fmt, fs,
+    path::{Path, PathBuf},
+    time::Duration,
+};
 
 type EntryDeltaMap<'a> = HashMap<&'a Path, EntryDelta<'a>>;
 
@@ -138,8 +140,15 @@ impl DirEntry {
     /// Visit and populate the directory entry.
     fn visit(&mut self, ignore: Option<&Gitignore>) -> Result<(), Error> {
         // iterate over the directory entries
-        for e in fs::read_dir(&self.path)? {
-            let e = e?;
+        let dirs = fs::read_dir(&self.path)?.filter_map(|e| match e {
+            Ok(e) => Some(e),
+            Err(e) => {
+                warn!("Cannot read directory: {}", e);
+                None
+            }
+        });
+
+        for e in dirs {
             let path = e.path();
             let is_dir = path.is_dir();
 
@@ -152,10 +161,10 @@ impl DirEntry {
             }
 
             // get the entry filename if any
-            let file_name = path
-                .file_name()
-                .map(|s| PathBuf::from(s))
-                .ok_or(format_err!("Cannot get the filename for {:?}", path))?;
+            let file_name =
+                path.file_name().map(PathBuf::from).ok_or_else(|| {
+                    format_err!("Cannot get the filename for {:?}", path)
+                })?;
 
             if is_dir {
                 debug!("New sub-directory: {:?}", path);
@@ -272,11 +281,8 @@ impl FileEntry {
                     .duration_since(UNIX_EPOCH)?;
                 // compare timestamps
                 let time_delta = FileEntry::cmp_modified(t1, t2, accuracy);
-                let delta = if let Some(delta) = time_delta {
-                    Some(FileDelta::new(self, other, delta))
-                } else {
-                    None
-                };
+                let delta =
+                    time_delta.map(|delta| FileDelta::new(self, other, delta));
                 Ok(delta)
             }
             _ => Err(format_err!(
@@ -299,22 +305,24 @@ impl FileEntry {
         dest: Duration,
         accuracy: &Duration,
     ) -> Option<FileTimeDelta> {
-        if source > dest {
-            // source may be newer
-            if (source - *accuracy) > dest {
-                Some(FileTimeDelta::Newer)
-            } else {
-                None
+        match source.cmp(&dest) {
+            Ordering::Greater => {
+                // source may be newer
+                if (source - *accuracy) > dest {
+                    Some(FileTimeDelta::Newer)
+                } else {
+                    None
+                }
             }
-        } else if dest > source {
-            // source may be older (dest may be newer)
-            if (dest - *accuracy) > source {
-                Some(FileTimeDelta::Older)
-            } else {
-                None
+            Ordering::Less => {
+                // source may be older (dest may be newer)
+                if (dest - *accuracy) > source {
+                    Some(FileTimeDelta::Older)
+                } else {
+                    None
+                }
             }
-        } else {
-            None
+            Ordering::Equal => None,
         }
     }
 }
@@ -383,7 +391,9 @@ impl Entry {
         self.path()
             .file_name()
             .map(|s| Path::new(s))
-            .ok_or(format_err!("Cannot get the filename for '{}'", self))
+            .ok_or_else(|| {
+                format_err!("Cannot get the filename for '{}'", self)
+            })
     }
 
     /// Copies self into the given destination.
@@ -407,12 +417,11 @@ impl Entry {
         );
         match (self, other) {
             (Entry::Dir(dir1), Entry::Dir(dir2)) => {
-                let delta =
-                    dir1.cmp(dir2, accuracy)?.map(|d| EntryDelta::Dir(d));
+                let delta = dir1.cmp(dir2, accuracy)?.map(EntryDelta::Dir);
                 Ok(delta)
             }
             (Entry::File(f1), Entry::File(f2)) => {
-                let delta = f1.cmp(f2, accuracy)?.map(|d| EntryDelta::File(d));
+                let delta = f1.cmp(f2, accuracy)?.map(EntryDelta::File);
                 Ok(delta)
             }
             _ => Err(err_msg("Cannot compare different type of entries!")),
@@ -430,8 +439,7 @@ impl fmt::Display for Entry {
 mod tests {
 
     use super::*;
-    use std::env;
-    use std::{thread, time};
+    use std::{env, thread, time};
     use uuid::Uuid;
 
     lazy_static! {
@@ -711,24 +719,25 @@ mod tests {
     fn create_dir(root: &Path, name: &str) -> DirEntry {
         let dir: PathBuf = [root, Path::new(name)].iter().collect();
         fs::create_dir(&dir)
-            .expect(&format!("Cannot create directory {:?}", dir));
+            .unwrap_or_else(|_| panic!("Cannot create directory {:?}", dir));
         let ignore = false;
         DirEntry::new(&dir, ignore)
-            .expect(&format!("Cannot create DirEntry {:?}", dir))
+            .unwrap_or_else(|_| panic!("Cannot create DirEntry {:?}", dir))
     }
 
     /// Writes a new empty fule in the given root path.
     fn write_file(root: &Path, name: &str) -> FileEntry {
         let file: PathBuf = [root, Path::new(name)].iter().collect();
         thread::sleep(*ACCURACY + Duration::from_millis(10));
-        fs::write(&file, "").expect(&format!("Cannot writes file {:?}", file));
+        fs::write(&file, "")
+            .unwrap_or_else(|_| panic!("Cannot writes file {:?}", file));
         FileEntry::new(&file)
-            .expect(&format!("Cannot create FileEntry {:?}", file))
+            .unwrap_or_else(|_| panic!("Cannot create FileEntry {:?}", file))
     }
 
     /// Create the source and destination directories in a temp folder.
     fn create_source_and_dest_dirs() -> (DirEntry, DirEntry) {
-        let temp_dir = env::temp_dir();;
+        let temp_dir = env::temp_dir();
         // create source and destination directories
         let source = Uuid::new_v4().to_simple().to_string();
         let source = create_dir(temp_dir.as_path(), &source);
